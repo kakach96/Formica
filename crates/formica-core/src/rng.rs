@@ -49,6 +49,23 @@ impl SimRng {
         lo + self.unit() * (hi - lo)
     }
 
+    /// Standard normal, via the Box-Muller transform.
+    ///
+    /// Needed for the per-ant behaviour traits: those are drawn log-normally so
+    /// that most ants are near the population mean while a thin tail of
+    /// unusually bold or unusually timid individuals exists. A uniform draw
+    /// cannot produce that tail, and the tail is the whole point - it is what
+    /// stops the colony from spreading as a featureless circle.
+    ///
+    /// `u1` is floored away from zero because `ln(0)` is `-inf`; the clamp is
+    /// one part in 8.4 million, so it does not bias the distribution.
+    #[inline]
+    pub fn normal(&mut self) -> f32 {
+        let u1 = self.unit().max(1.0e-7);
+        let u2 = self.unit();
+        (-2.0 * u1.ln()).sqrt() * (std::f32::consts::TAU * u2).cos()
+    }
+
     /// Uniform integer in `[0, n)`.
     #[inline]
     pub fn below(&mut self, n: u32) -> u32 {
@@ -100,5 +117,38 @@ mod tests {
             sum += v as f64;
         }
         assert!((sum / N as f64).abs() < 0.01, "mean drifted: {}", sum / N as f64);
+    }
+
+    /// A normal draw has to be centred, have unit-ish spread, and - the reason
+    /// it exists - occasionally produce values far from the mean.
+    #[test]
+    fn normal_is_standard_and_has_tails() {
+        let mut rng = SimRng::new(11);
+        const N: usize = 200_000;
+        let mut sum = 0.0f64;
+        let mut sum_sq = 0.0f64;
+        let mut beyond_two = 0usize;
+        let mut extreme = 0.0f32;
+        for _ in 0..N {
+            let z = rng.normal();
+            assert!(z.is_finite(), "normal() produced {z}");
+            sum += z as f64;
+            sum_sq += (z * z) as f64;
+            if z.abs() > 2.0 {
+                beyond_two += 1;
+            }
+            extreme = extreme.max(z.abs());
+        }
+        let mean = sum / N as f64;
+        let var = sum_sq / N as f64 - mean * mean;
+        assert!(mean.abs() < 0.01, "mean {mean}");
+        assert!((var - 1.0).abs() < 0.02, "variance {var}");
+        // ~4.6% of a standard normal lies beyond +/-2 sigma.
+        let fraction = beyond_two as f64 / N as f64;
+        assert!(
+            (0.03..0.07).contains(&fraction),
+            "{fraction} of draws beyond 2 sigma"
+        );
+        assert!(extreme > 4.0, "no tail at all: max |z| = {extreme}");
     }
 }

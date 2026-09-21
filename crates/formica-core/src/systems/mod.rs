@@ -17,6 +17,9 @@
 //!   move_ants                 AntHeading + speed -> AntPos (walls, obstacles)
 //!   move_predators            hunt the nearest ant, or wander
 //!        |
+//!   tally_crowding            ants -> coarse density bins
+//!   relieve_crowding          step out of a jam, toward the emptiest neighbour
+//!        |
 //!   deposit_pheromones        AntPos + state -> own colony's grid
 //!        |
 //!   pickup_food               cell food -> Carrying, state := Returning
@@ -26,7 +29,13 @@
 //!        |
 //!   update_stats              counters + curve sample
 //! ```
+//!
+//! The two crowding systems sit between movement and deposit on purpose: the
+//! tally must see final positions, and the relief must land before the trail is
+//! laid, so an ant that has been shoved out of a jam writes its pheromone where
+//! it actually ended up.
 
+pub mod crowd;
 pub mod decide;
 pub mod deposit;
 pub mod evaporate;
@@ -38,6 +47,7 @@ pub mod sense;
 pub mod spawn;
 pub mod stats;
 
+pub use crowd::{relieve_crowding, tally_crowding};
 pub use decide::decide_heading;
 pub use deposit::deposit_pheromones;
 pub use evaporate::evaporate_pheromones;

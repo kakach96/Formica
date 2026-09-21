@@ -117,6 +117,15 @@ fn apply_env_overrides(config: &mut SimConfig) {
     if let Some(evaporation) = env_f32("FORMICA_EVAPORATION") {
         config.evaporation_rate = evaporation;
     }
+    if let Some(individuality) = env_f32("FORMICA_INDIVIDUALITY") {
+        config.individuality = individuality;
+    }
+    if let Some(threshold) = env_f32("FORMICA_CROWD_THRESHOLD") {
+        config.crowd_threshold = threshold;
+    }
+    if let Some(relief) = env_f32("FORMICA_CROWD_RELIEF") {
+        config.crowd_relief = relief;
+    }
     if let Ok(kind) = std::env::var("FORMICA_OBSTACLES") {
         config.obstacle_preset = match kind.as_str() {
             "u-wall" | "u_wall" | "wall" => ObstaclePreset::UWall {
@@ -127,6 +136,34 @@ fn apply_env_overrides(config: &mut SimConfig) {
             "blocks" | "random" => ObstaclePreset::RandomBlocks { density: 0.15 },
             _ => ObstaclePreset::None,
         };
+    }
+    // Density is what turns "scattered blocks" into a labyrinth of one-cell
+    // passages, which is the scenario the crowding relief exists for, so it
+    // needs to be reachable from a scripted capture.
+    if let (Some(density), true) = (
+        env_f32("FORMICA_BLOCK_DENSITY"),
+        matches!(config.obstacle_preset, ObstaclePreset::RandomBlocks { .. }),
+    ) {
+        config.obstacle_preset = ObstaclePreset::RandomBlocks { density };
+    }
+    // Narrowing the U's mouth is the cheapest way to script a real bottleneck:
+    // the food stays reachable, but only a couple of ants fit through at once.
+    if let (Some(gap), ObstaclePreset::UWall { arm, thickness, .. }) =
+        (env_f32("FORMICA_U_WALL_GAP"), config.obstacle_preset)
+    {
+        config.obstacle_preset = ObstaclePreset::UWall {
+            arm,
+            gap,
+            thickness,
+        };
+    } else if let Some(arm) = env_f32("FORMICA_U_WALL_ARM") {
+        if let ObstaclePreset::UWall { gap, thickness, .. } = config.obstacle_preset {
+            config.obstacle_preset = ObstaclePreset::UWall {
+                arm,
+                gap,
+                thickness,
+            };
+        }
     }
     config.sanitize();
 }

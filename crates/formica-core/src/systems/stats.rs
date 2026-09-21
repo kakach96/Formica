@@ -7,6 +7,7 @@ use bevy_ecs::prelude::*;
 
 use crate::ant::AntState;
 use crate::config::SimConfig;
+use crate::crowd::CrowdGrid;
 use crate::grid::{Pheromone, PheromoneGrid};
 use crate::metrics::SimStats;
 use crate::world::FoodField;
@@ -16,6 +17,7 @@ pub fn update_stats(
     config: Res<SimConfig>,
     food: Res<FoodField>,
     grid: Res<PheromoneGrid>,
+    crowd: Res<CrowdGrid>,
     mut stats: ResMut<SimStats>,
     ants: Query<&AntState>,
 ) {
@@ -35,6 +37,9 @@ pub fn update_stats(
     stats.food_remaining = food.remaining_total;
     stats.food_initial = food.initial_total;
     stats.food_removed = food.removed_total;
+    stats.crowd_max_bin = crowd.max_bin;
+    stats.crowd_peak_bin = crowd.peak_bin;
+    stats.crowd_occupied = crowd.occupied;
 
     if stats.tick.is_multiple_of(config.sample_interval) {
         // Summing every cell of every field is far more expensive than the rest
@@ -48,6 +53,7 @@ pub fn update_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crowd::CROWD_BIN;
     use crate::world::FoodPile;
     use bevy_ecs::system::RunSystemOnce;
     use bevy_ecs::world::World;
@@ -70,6 +76,7 @@ mod tests {
             }],
         ));
         world.insert_resource(PheromoneGrid::new(8, 8, 2));
+        world.insert_resource(CrowdGrid::new(8, 8, CROWD_BIN));
         world.insert_resource(SimStats::default());
         world
     }
@@ -136,5 +143,35 @@ mod tests {
             stats.samples[0].food_pheromone, 7.0,
             "colony 1's trail was left out of the total"
         );
+    }
+
+    /// The concentration readout has to mirror the crowd grid, every tick and
+    /// not only on sampling ticks - the panel shows it live.
+    #[test]
+    fn the_concentration_readout_mirrors_the_crowd_grid() {
+        let mut world = world();
+        world.resource_mut::<CrowdGrid>().rebuild(
+            (0..30)
+                .map(|i| (1.0 + i as f32 * 0.05, 1.0))
+                .collect::<Vec<_>>()
+                .into_iter(),
+        );
+        world.spawn(AntState::Searching);
+
+        world.run_system_once(update_stats).unwrap();
+
+        let stats = world.resource::<SimStats>();
+        assert_eq!(stats.crowd_max_bin, 30);
+        assert_eq!(stats.crowd_peak_bin, 30);
+        assert_eq!(stats.crowd_occupied, 1);
+
+        // A later, calmer tick reports the new value but keeps the peak.
+        world
+            .resource_mut::<CrowdGrid>()
+            .rebuild(vec![(1.0, 1.0), (40.0, 40.0)].into_iter());
+        world.run_system_once(update_stats).unwrap();
+        let stats = world.resource::<SimStats>();
+        assert_eq!(stats.crowd_max_bin, 1);
+        assert_eq!(stats.crowd_peak_bin, 30, "the peak was forgotten");
     }
 }

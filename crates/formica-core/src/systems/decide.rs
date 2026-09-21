@@ -2,10 +2,24 @@
 
 use bevy_ecs::prelude::*;
 
-use crate::ant::{wrap_angle, AntColony, AntHeading, AntPos, AntState, PheromoneSensors};
+use crate::ant::{wrap_angle, AntColony, AntHeading, AntPos, AntState, AntVigor, PheromoneSensors};
 use crate::config::SimConfig;
 use crate::rng::SimRng;
 use crate::world::Nests;
+
+/// Everything this system reads and writes about one ant.
+///
+/// `AntVigor` is optional so that a hand-built ant tuple - which every unit test
+/// in this file uses - behaves as the population mean instead of failing to
+/// match the query at all.
+type Forager<'a> = (
+    &'a AntColony,
+    &'a AntState,
+    &'a AntPos,
+    &'a PheromoneSensors,
+    &'a mut AntHeading,
+    Option<&'a AntVigor>,
+);
 
 /// Steer every ant for this tick.
 ///
@@ -20,21 +34,24 @@ use crate::world::Nests;
 /// brief is explicit that homing is direct; `home_pheromone_weight` is the knob
 /// that instead blends in the home-pheromone gradient (default 0.0 = brief
 /// behaviour).
+///
+/// Both branches scale the jitter by the ant's own [`AntVigor::wander`]. That
+/// is the only per-individual difference in the whole simulation, and it is
+/// load-bearing: without it every ant traces the same random walk and the
+/// colony is a featureless expanding disc.
 pub fn decide_heading(
     config: Res<SimConfig>,
     nests: Res<Nests>,
     mut rng: ResMut<SimRng>,
-    mut ants: Query<(
-        &AntColony,
-        &AntState,
-        &AntPos,
-        &PheromoneSensors,
-        &mut AntHeading,
-    )>,
+    mut ants: Query<Forager>,
 ) {
     let deadzone = config.pheromone_deadzone;
 
-    for (colony, state, pos, sensors, mut heading) in ants.iter_mut() {
+    for (colony, state, pos, sensors, mut heading, vigor) in ants.iter_mut() {
+        // A hand-spawned ant with no `AntVigor` behaves as the population mean,
+        // which keeps every unit test that builds a bare ant tuple valid.
+        let wander = vigor.copied().unwrap_or_default().wander;
+
         // A trail is only worth following if it is actually above the noise
         // floor; otherwise the ant is doing a pure random walk.
         let sensed = sensors.strongest() > deadzone;
@@ -46,7 +63,7 @@ pub fn decide_heading(
 
         match state {
             AntState::Searching => {
-                let jitter = rng.signed() * config.random_walk_strength;
+                let jitter = rng.signed() * config.random_walk_strength * wander;
                 heading.turn(trail_turn + jitter);
             }
             AntState::Returning => {
@@ -60,7 +77,7 @@ pub fn decide_heading(
                 }
                 // Even a homing ant wanders a little, which is what keeps the
                 // returning trail a corridor instead of a razor-thin line.
-                let jitter = rng.signed() * config.random_walk_strength * 0.3;
+                let jitter = rng.signed() * config.random_walk_strength * 0.3 * wander;
                 heading.turn(steer + jitter);
             }
         }

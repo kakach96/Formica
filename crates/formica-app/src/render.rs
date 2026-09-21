@@ -274,6 +274,13 @@ fn sync_predator_sprites(
     }
 }
 
+/// Food that has never been touched.
+const FOOD_FULL: [f32; 3] = [0.55, 0.95, 0.25];
+/// Food that has been picked over. A *dimmed* green rather than a red one: an
+/// earlier version ramped toward red, which is the predator colour, so an
+/// exhausted pile read as a threat on the map.
+const FOOD_EMPTY: [f32; 3] = [0.20, 0.32, 0.10];
+
 /// Shrink and fade each food pile as it is eaten, and keep the sprite count in
 /// step with the pile list.
 ///
@@ -294,12 +301,11 @@ fn sync_food_sprites(
             commands.entity(entity).despawn();
         }
         for (index, pile) in food.piles.iter().enumerate() {
+            let fraction = remaining_fraction(&food, pile);
+            let (size, color) = food_appearance(pile.radius, fraction);
             commands.spawn((
                 FoodVisual(index),
-                Sprite::from_color(
-                    Color::srgb(0.55, 0.95, 0.25),
-                    Vec2::splat(pile.radius * 2.0),
-                ),
+                Sprite::from_color(color, size),
                 Transform::from_xyz(pile.x, pile.y, 1.0),
             ));
         }
@@ -313,20 +319,51 @@ fn sync_food_sprites(
         let Some(pile) = food.piles.get(visual.0) else {
             continue;
         };
-        let fraction = if pile.initial > 0.0 {
-            (food.pile_remaining(pile) / pile.initial).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        // sqrt keeps the pile looking substantial until it is really gone.
-        let scale = 0.3 + 0.7 * fraction.sqrt();
-        sprite.custom_size = Some(Vec2::splat(pile.radius * 2.0 * scale));
-        sprite.color = Color::srgb(
-            0.55 + 0.4 * (1.0 - fraction),
-            0.95 * fraction + 0.2,
-            0.25 * fraction,
-        );
+        let (size, color) = food_appearance(pile.radius, remaining_fraction(&food, pile));
+        if sprite.custom_size != Some(size) {
+            sprite.custom_size = Some(size);
+        }
+        if sprite.color != color {
+            sprite.color = color;
+        }
     }
+}
+
+/// How much of a pile is left, in `0.0..=1.0`.
+fn remaining_fraction(food: &FoodField, pile: &FoodPile) -> f32 {
+    if pile.initial > 0.0 {
+        (food.pile_remaining(pile) / pile.initial).clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+/// Sprite size and colour for a pile with `fraction` of its food left.
+///
+/// The radius follows `sqrt(fraction)` because the sprite stands for a heap
+/// spread over an area: halve the food, and the disc that holds it shrinks by
+/// the square root, not by half. That also makes the *last* few percent
+/// dramatic, which is the part worth seeing - a pile going from 4% to 0%
+/// visibly collapses.
+///
+/// A pile that is gone is drawn at zero size rather than left as a small stub.
+/// The stub was worse than it sounds: `FoodField::piles` keeps exhausted piles
+/// for the player to see and erase, so without this the map slowly fills with
+/// permanent coloured dots marking food that no longer exists.
+fn food_appearance(radius: f32, fraction: f32) -> (Vec2, Color) {
+    if fraction <= 0.005 {
+        return (Vec2::ZERO, Color::NONE);
+    }
+    let scale = fraction.sqrt();
+    let mix = |a: f32, b: f32| a + (b - a) * fraction;
+    (
+        Vec2::splat(radius * 2.0 * scale),
+        Color::srgb(
+            mix(FOOD_EMPTY[0], FOOD_FULL[0]),
+            mix(FOOD_EMPTY[1], FOOD_FULL[1]),
+            mix(FOOD_EMPTY[2], FOOD_FULL[2]),
+        ),
+    )
 }
 
 /// Keep one sprite per nest, coloured by colony.
@@ -385,5 +422,127 @@ fn paint_world(
         if let Some(data) = image.data.as_mut() {
             paint_world_field(&grid, &obstacles, data, &view, colonies);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pile(initial: f32) -> FoodPile {
+        FoodPile {
+            x: 16.0,
+            y: 16.0,
+            radius: 6.0,
+            initial,
+        }
+    }
+
+    #[test]
+    fn a_full_pile_is_drawn_at_its_nominal_size_and_colour() {
+        let (size, color) = food_appearance(6.0, 1.0);
+        assert_eq!(size, Vec2::splat(12.0));
+        assert_eq!(
+            color,
+            Color::srgb(FOOD_FULL[0], FOOD_FULL[1], FOOD_FULL[2])
+        );
+    }
+
+    /// The pile must actually get smaller as it is carried away - the whole
+    /// point of the feature.
+    #[test]
+    fn a_pile_shrinks_as_it_is_eaten() {
+        // Walk the pile *down* from full to nearly gone, which is the direction
+        // a real run moves in, and require the drawn size to fall with it.
+        let mut previous = f32::INFINITY;
+        for step in (1..=200).rev() {
+            let fraction = step as f32 / 200.0;
+            let (size, _) = food_appearance(6.0, fraction);
+            assert!(
+                size.x < previous + 1e-4,
+                "the pile grew as it was eaten: {previous} -> {} at {fraction}",
+                size.x
+            );
+            previous = size.x;
+        }
+        let (half, _) = food_appearance(6.0, 0.5);
+        assert!(
+            (half.x - 12.0 * 0.5f32.sqrt()).abs() < 1e-4,
+            "half a pile should be sqrt(0.5) of the radius, got {}",
+            half.x
+        );
+        // The last few percent are the most visible part of the shrink: a 4%
+        // pile is under a quarter of the original across.
+        let (sliver, _) = food_appearance(6.0, 0.04);
+        assert!(sliver.x < 12.0 * 0.25, "a 4% pile is still {} across", sliver.x);
+    }
+
+    /// An exhausted pile must vanish. Leaving a stub behind litters the map,
+    /// because `FoodField` keeps eaten piles in its list.
+    #[test]
+    fn an_exhausted_pile_is_not_drawn() {
+        let (size, color) = food_appearance(6.0, 0.0);
+        assert_eq!(size, Vec2::ZERO, "an eaten pile still occupies space");
+        assert_eq!(color.alpha(), 0.0, "an eaten pile is still opaque");
+        assert_eq!(color, Color::NONE);
+    }
+
+    /// Dimming, not a hue shift: red is the predator colour, so a nearly
+    /// exhausted pile must still read as food.
+    #[test]
+    fn a_depleted_pile_stays_green() {
+        // From just above the vanish threshold: at or below it the pile is
+        // deliberately not drawn at all.
+        for fraction in [0.006, 0.01, 0.05, 0.2, 0.5, 0.9] {
+            let (_, color) = food_appearance(6.0, fraction);
+            let c = color.to_srgba();
+            assert!(
+                c.green > c.red && c.green > c.blue,
+                "depleted food at {fraction} turned red or blue: {c:?}"
+            );
+            assert!(c.alpha() > 0.5, "visible pile is transparent: {c:?}");
+        }
+        // Darker as it empties, which is the "picked over" cue.
+        let bright = food_appearance(6.0, 1.0).1.to_srgba();
+        let dim = food_appearance(6.0, 0.02).1.to_srgba();
+        assert!(dim.green < bright.green);
+        assert!(dim.red < bright.red);
+    }
+
+    #[test]
+    fn remaining_fraction_reads_the_field_not_the_book_keeping() {
+        let field = FoodField::from_piles(64, 64, vec![pile(200.0)]);
+        assert!((remaining_fraction(&field, &field.piles[0]) - 1.0).abs() < 1e-5);
+
+        let mut field = field;
+        // A pile whose `initial` is zero must not divide by zero.
+        let empty = pile(0.0);
+        assert_eq!(remaining_fraction(&field, &empty), 0.0);
+
+        // Eat half the pile. `take` draws from one cell, so the whole disc has
+        // to be visited - draining a single cell only reaches ~2% of a pile
+        // this size.
+        let target = field.remaining_total / 2.0;
+        let mut eaten = 0.0;
+        'disc: for dy in -7..=7 {
+            for dx in -7..=7 {
+                loop {
+                    if eaten >= target {
+                        break 'disc;
+                    }
+                    let got = field.take(16.0 + dx as f32, 16.0 + dy as f32, 0.5) as f64;
+                    if got <= 0.0 {
+                        break;
+                    }
+                    eaten += got;
+                }
+            }
+        }
+        assert!((eaten - target).abs() < 1.0, "only ate {eaten} of {target}");
+        let fraction = remaining_fraction(&field, &field.piles[0]);
+        assert!(
+            (0.45..0.55).contains(&fraction),
+            "half-eaten pile reports {fraction}"
+        );
     }
 }

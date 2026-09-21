@@ -243,6 +243,8 @@ fn control_panel(
                 ui.separator();
                 ant_controls(ui, &mut config);
                 ui.separator();
+                crowd_controls(ui, &mut config, &stats);
+                ui.separator();
                 predator_controls(ui, &mut config);
                 ui.separator();
                 display_controls(ui, &mut view);
@@ -687,6 +689,37 @@ fn ant_controls(ui: &mut egui::Ui, config: &mut SimConfig) {
         .on_hover_text("0 disables trail following entirely");
     ui.add(egui::Slider::new(&mut config.home_pheromone_weight, 0.0..=1.0).text("home-trail guidance"))
         .on_hover_text("0 = returning ants head straight for the nest (brief behaviour)");
+    ui.add(egui::Slider::new(&mut config.individuality, 0.0..=1.5).text("individuality"))
+        .on_hover_text(
+            "spread of per-ant speed and wander. 0 makes every ant identical, which is \
+             what makes the colony expand as a hollow ring",
+        );
+}
+
+/// Crowding: the knob that stops a bottleneck collapsing the colony onto a
+/// point, plus the live readout that says whether it is happening.
+fn crowd_controls(ui: &mut egui::Ui, config: &mut SimConfig, stats: &SimStats) {
+    egui::CollapsingHeader::new("Crowding")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.add(egui::Slider::new(&mut config.crowd_threshold, 4.0..=120.0).text("jam threshold"))
+                .on_hover_text("ants sharing one 4x4-cell bin before relief starts");
+            ui.add(egui::Slider::new(&mut config.crowd_relief, 0.0..=2.0).text("relief step (cells)"))
+                .on_hover_text("0 disables crowding relief entirely");
+
+            // Live concentration: if this climbs into the hundreds while food
+            // is walled off, the colony is piling onto one spot.
+            let uniform = if config.cell_count() > 0 {
+                config.total_ants() as f32 * 16.0 / config.cell_count() as f32
+            } else {
+                0.0
+            };
+            ui.small(format!(
+                "busiest 4x4 bin: {} ants  (peak {}), over {} bins\n\
+                 an evenly spread colony would hold about {:.1} per bin",
+                stats.crowd_max_bin, stats.crowd_peak_bin, stats.crowd_occupied, uniform
+            ));
+        });
 }
 
 fn predator_controls(ui: &mut egui::Ui, config: &mut SimConfig) {

@@ -39,6 +39,7 @@
 
 pub mod ant;
 pub mod config;
+pub mod crowd;
 pub mod grid;
 pub mod metrics;
 pub mod motion;
@@ -56,6 +57,7 @@ pub mod prelude {
         PheromoneSensors,
     };
     pub use crate::config::{ObstaclePreset, SimConfig};
+    pub use crate::crowd::{CrowdGrid, CROWD_BIN};
     pub use crate::grid::{
         Deposit, Pheromone, PheromoneGrid, MAX_COLONIES, PHEROMONE_EPSILON,
     };

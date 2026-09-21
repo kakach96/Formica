@@ -64,12 +64,7 @@ pub fn sync_ant_count(
         }
         let nest = *nests.get(index);
         for _ in *already..per_colony {
-            commands.spawn(newborn_ant(
-                AntColony(index),
-                &nest,
-                &mut rng,
-                config.spawn_radius,
-            ));
+            commands.spawn(newborn_ant(AntColony(index), &nest, &mut rng, &config));
         }
     }
 }

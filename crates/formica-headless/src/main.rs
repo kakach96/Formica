@@ -63,6 +63,11 @@ PHEROMONES AND BEHAVIOUR
     --random-walk F       Heading jitter per tick, radians [default: 0.3]
     --turn-gain F         Turn toward the best antenna     [default: 0.6]
     --speed F             Cells per tick                   [default: 2.0]
+    --individuality F     Per-ant trait spread, 0 = clones [default: 0.6]
+
+CROWDING
+    --crowd-threshold F   Ants per 4x4 bin counted as a jam [default: 24]
+    --crowd-relief F      Cells an ant steps out of a jam  [default: 0.6]
 
 OUTPUT
     --sample-interval N   Ticks between curve samples      [default: 10]
@@ -76,6 +81,7 @@ EXPERIMENTS
     --sweep-evaporation L  Comma-separated values; runs each and compares
     --sweep-random-walk L  Comma-separated values; runs each and compares
     --sweep-predators L    Comma-separated predator counts; runs each
+    --sweep-individuality L  Comma-separated trait-spread values; runs each
 
     -h, --help            Show this help
 
@@ -102,6 +108,7 @@ fn main() -> ExitCode {
     if !opts.evaporation_sweep.is_empty()
         || !opts.random_walk_sweep.is_empty()
         || !opts.predator_sweep.is_empty()
+        || !opts.individuality_sweep.is_empty()
     {
         return run_sweeps(&opts);
     }
@@ -142,6 +149,7 @@ struct Options {
     evaporation_sweep: Vec<f32>,
     random_walk_sweep: Vec<f32>,
     predator_sweep: Vec<f32>,
+    individuality_sweep: Vec<f32>,
 }
 
 impl Default for Options {
@@ -157,6 +165,7 @@ impl Default for Options {
             evaporation_sweep: Vec::new(),
             random_walk_sweep: Vec::new(),
             predator_sweep: Vec::new(),
+            individuality_sweep: Vec::new(),
         }
     }
 }
@@ -258,6 +267,13 @@ impl Options {
                 "--random-walk" => opts.config.random_walk_strength = number(args, &mut i, flag)?,
                 "--turn-gain" => opts.config.sensor_turn_gain = number(args, &mut i, flag)?,
                 "--speed" => opts.config.speed = number(args, &mut i, flag)?,
+                "--individuality" => {
+                    opts.config.individuality = number(args, &mut i, flag)?
+                }
+                "--crowd-threshold" => {
+                    opts.config.crowd_threshold = number(args, &mut i, flag)?
+                }
+                "--crowd-relief" => opts.config.crowd_relief = number(args, &mut i, flag)?,
 
                 "--sample-interval" => opts.config.sample_interval = number(args, &mut i, flag)?,
                 "--report-every" => opts.report_every = number(args, &mut i, flag)?,
@@ -274,6 +290,9 @@ impl Options {
                 }
                 "--sweep-predators" => {
                     opts.predator_sweep = parse_list(value(args, &mut i, flag)?, flag)?
+                }
+                "--sweep-individuality" => {
+                    opts.individuality_sweep = parse_list(value(args, &mut i, flag)?, flag)?
                 }
 
                 other => return Err(format!("unknown option '{other}'")),
@@ -383,14 +402,15 @@ fn run_once(opts: &Options) -> Outcome {
         if !opts.quiet && interval > 0 {
             let stats = app.world().resource::<SimStats>();
             println!(
-                "  tick {:>6}  delivered {:>9.1} ({:>5.1}%)  searching {:>5}  returning {:>5}  food left {:>9.1}  eaten {}",
+                "  tick {:>6}  delivered {:>9.1} ({:>5.1}%)  searching {:>5}  returning {:>5}  food left {:>9.1}  eaten {}  busiest bin {}",
                 stats.tick,
                 stats.delivered_total,
                 stats.recovery_fraction() * 100.0,
                 stats.searching,
                 stats.returning,
                 stats.food_remaining,
-                stats.ants_eaten
+                stats.ants_eaten,
+                stats.crowd_max_bin
             );
         }
     }
@@ -419,7 +439,7 @@ fn print_report(opts: &Options, outcome: &Outcome) {
         stats.food_initial
     );
     println!(
-        "behaviour  evaporation {:.3}/tick, deposit {:.2} (kernel r={}), sensor r={:.1} @ {:.2} rad (box {}), walk {:.2}, turn-gain {:.2}, speed {:.1}/tick",
+        "behaviour  evaporation {:.3}/tick, deposit {:.2} (kernel r={}), sensor r={:.1} @ {:.2} rad (box {}), walk {:.2}, turn-gain {:.2}, speed {:.1}/tick, individuality {:.2}",
         config.evaporation_rate,
         config.deposit_amount,
         config.deposit_radius,
@@ -428,7 +448,8 @@ fn print_report(opts: &Options, outcome: &Outcome) {
         config.sensor_box_radius,
         config.random_walk_strength,
         config.sensor_turn_gain,
-        config.speed
+        config.speed,
+        config.individuality
     );
     if !matches!(config.obstacle_preset, ObstaclePreset::None) {
         println!(
@@ -534,6 +555,10 @@ fn print_report(opts: &Options, outcome: &Outcome) {
     if stats.ants_eaten > 0 {
         println!("  ants eaten             {:>10}", stats.ants_eaten);
     }
+    println!(
+        "  concentration          {:>10}  (ants in the busiest 4x4 bin; peak {}, over {} occupied bins)",
+        stats.crowd_max_bin, stats.crowd_peak_bin, stats.crowd_occupied
+    );
     println!("\n  VERDICT: {}", report.verdict());
 }
 
@@ -546,6 +571,7 @@ fn run_sweeps(opts: &Options) -> ExitCode {
         ("evaporation", opts.evaporation_sweep.clone()),
         ("random-walk", opts.random_walk_sweep.clone()),
         ("predators", opts.predator_sweep.clone()),
+        ("individuality", opts.individuality_sweep.clone()),
     ]
     .into_iter()
     .filter(|(_, values)| !values.is_empty())
@@ -563,7 +589,7 @@ fn run_sweeps(opts: &Options) -> ExitCode {
             opts.config.height
         );
         println!(
-            "{:>8}  {:>10}  {:>8}  {:>8}  {:>8}  {:>7}  curve",
+            "{:>14}  {:>10}  {:>8}  {:>8}  {:>8}  {:>7}  curve",
             name, "delivered", "recovery", "sigmoid", "eaten", "1st tick"
         );
 
@@ -573,6 +599,7 @@ fn run_sweeps(opts: &Options) -> ExitCode {
                 "evaporation" => config.evaporation_rate = *value,
                 "random-walk" => config.random_walk_strength = *value,
                 "predators" => config.predator_count = *value as usize,
+                "individuality" => config.individuality = *value,
                 _ => unreachable!(),
             }
             config.sanitize();
@@ -595,7 +622,7 @@ fn run_sweeps(opts: &Options) -> ExitCode {
                 34,
             );
             println!(
-                "{:>8.3}  {:>10.1}  {:>7.1}%  {:>8.2}  {:>8}  {:>8}  {}",
+                "{:>14.3}  {:>10.1}  {:>7.1}%  {:>8.2}  {:>8}  {:>8}  {}",
                 value,
                 outcome.stats.delivered_total,
                 outcome.stats.recovery_fraction() * 100.0,
@@ -625,12 +652,12 @@ fn run_sweeps(opts: &Options) -> ExitCode {
 fn write_csv(path: &str, stats: &SimStats) -> std::io::Result<()> {
     let mut out = String::with_capacity(stats.samples.len() * 64);
     out.push_str(
-        "tick,delivered,colony0,colony1,deliveries,delta,searching,returning,food_remaining,food_pheromone,home_pheromone\n",
+        "tick,delivered,colony0,colony1,deliveries,delta,searching,returning,food_remaining,food_pheromone,home_pheromone,crowd_max_bin\n",
     );
     for s in &stats.samples {
         let _ = writeln!(
             out,
-            "{},{:.4},{:.4},{:.4},{},{:.4},{},{},{:.4},{:.3},{:.3}",
+            "{},{:.4},{:.4},{:.4},{},{:.4},{},{},{:.4},{:.3},{:.3},{}",
             s.tick,
             s.delivered,
             s.colony(0),
@@ -641,7 +668,8 @@ fn write_csv(path: &str, stats: &SimStats) -> std::io::Result<()> {
             s.returning,
             s.food_remaining,
             s.food_pheromone,
-            s.home_pheromone
+            s.home_pheromone,
+            s.crowd_max_bin
         );
     }
     std::fs::write(path, out)

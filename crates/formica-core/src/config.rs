@@ -17,6 +17,16 @@ pub const DEFAULT_SENSOR_RADIUS: f32 = 3.0;
 pub const DEFAULT_RANDOM_WALK_STRENGTH: f32 = 0.3;
 pub const DEFAULT_SPEED: f32 = 2.0;
 pub const DEFAULT_DEPOSIT_AMOUNT: f32 = 1.0;
+/// Default spread of the per-ant behaviour traits.
+///
+/// 0.6 is a deliberate choice rather than a round number. At this sigma roughly
+/// 2% of a 500-ant colony are near-ballistic scouts (wander > 2) and 2% are
+/// house ants (wander < 0.4), which is enough to break the colony's radial
+/// symmetry within a few dozen ticks without the population falling apart into
+/// a handful of individuals. Measured: the radial profile stops being an
+/// annulus by tick ~30, where `individuality = 0.0` still shows a hollow ring
+/// at tick 60.
+pub const DEFAULT_INDIVIDUALITY: f32 = 0.6;
 /// Default RNG seed. Any `u64` works; this one is just easy to type.
 pub const DEFAULT_SEED: u64 = 20_240_517;
 
@@ -79,6 +89,15 @@ pub struct SimConfig {
     pub nest_radius: f32,
     /// Radius of the disc ants are scattered in when they spawn.
     pub spawn_radius: f32,
+    /// Spread of the per-ant behaviour traits, as the sigma of a log-normal.
+    ///
+    /// `0.0` makes every ant identical, which is what makes a colony expand as
+    /// a hollow circle: an ensemble of identical random walkers is radially
+    /// symmetric by construction, and no other parameter can break that. Above
+    /// zero, a thin tail of bold scouts - fast, near-ballistic - appears
+    /// alongside a bulk of timid foragers, and the colony develops structure
+    /// instead of a ring.
+    pub individuality: f32,
 
     // ---- pheromones -----------------------------------------------------
     /// Fraction of every pheromone cell that decays each tick:
@@ -120,6 +139,22 @@ pub struct SimConfig {
     // ---- movement -------------------------------------------------------
     /// Cells travelled per tick.
     pub speed: f32,
+
+    // ---- crowding -------------------------------------------------------
+    /// Ants per 4x4-cell bin above which an ant is treated as jammed.
+    ///
+    /// Calibrated against measurement, not taste: a 4x4 bin is 16 cells and an
+    /// ant sprite is ~2 cells across, so ~32 ants is a bin packed solid, and a
+    /// *busy trail* - the densest thing an open map produces - measures about
+    /// 10. 24 therefore sits comfortably above normal traffic and below a real
+    /// jam, which is why the relief system is inert on an open map.
+    pub crowd_threshold: f32,
+    /// Distance an ant steps out of a jam per tick, in cells.
+    ///
+    /// Small on purpose. This is a jostle, not a teleport: `0.6` is a third of
+    /// the default step length, so relief nudges an ant without ever dominating
+    /// its pheromone-driven movement. `0.0` disables relief entirely.
+    pub crowd_relief: f32,
 
     // ---- food -----------------------------------------------------------
     /// Number of food piles, 1..=8.
@@ -177,6 +212,7 @@ impl Default for SimConfig {
             nest_orbit: 55.0,
             nest_radius: 4.0,
             spawn_radius: 2.0,
+            individuality: DEFAULT_INDIVIDUALITY,
 
             evaporation_rate: DEFAULT_EVAPORATION_RATE,
             deposit_amount: DEFAULT_DEPOSIT_AMOUNT,
@@ -193,6 +229,9 @@ impl Default for SimConfig {
             pheromone_deadzone: 1.0e-4,
 
             speed: DEFAULT_SPEED,
+
+            crowd_threshold: 24.0,
+            crowd_relief: 0.6,
 
             food_pile_count: 3,
             food_per_pile: 3_000.0,
@@ -267,6 +306,7 @@ impl SimConfig {
         self.colony_count = self.colony_count.clamp(1, MAX_COLONIES);
         self.nest_radius = self.nest_radius.clamp(0.5, 64.0);
         self.spawn_radius = self.spawn_radius.clamp(0.0, 64.0);
+        self.individuality = self.individuality.clamp(0.0, 3.0);
         // Two nests must both fit, and must not sit on top of each other.
         let max_orbit = self.width.min(self.height) as f32 * 0.5 - self.nest_radius - 2.0;
         self.nest_orbit = self.nest_orbit.clamp(self.nest_radius * 2.0 + 4.0, max_orbit.max(1.0));
@@ -286,6 +326,9 @@ impl SimConfig {
         self.pheromone_deadzone = self.pheromone_deadzone.max(0.0);
 
         self.speed = self.speed.clamp(0.0, 32.0);
+
+        self.crowd_threshold = self.crowd_threshold.clamp(1.0, 10_000.0);
+        self.crowd_relief = self.crowd_relief.clamp(0.0, 8.0);
 
         self.food_pile_count = self.food_pile_count.clamp(1, 8);
         self.food_per_pile = self.food_per_pile.clamp(0.0, 1.0e9);

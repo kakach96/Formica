@@ -17,14 +17,15 @@ use bevy_ecs::schedule::ScheduleLabel;
 
 use crate::ant::{newborn_ant, AntColony, AntMarker, Carrying};
 use crate::config::SimConfig;
+use crate::crowd::{CrowdGrid, CROWD_BIN};
 use crate::grid::{PheromoneGrid, MAX_COLONIES};
 use crate::metrics::SimStats;
 use crate::obstacles::{sync_obstacles, Obstacles};
 use crate::rng::SimRng;
 use crate::systems::{
     decide_heading, deliver_food, deposit_pheromones, evaporate_pheromones, move_ants,
-    move_predators, pickup_food, predators_catch_ants, scrub_obstacle_pheromones,
-    sense_pheromones, sync_ant_count, sync_nests, sync_predator_count, update_stats,
+    move_predators, pickup_food, predators_catch_ants, relieve_crowding, scrub_obstacle_pheromones,
+    sense_pheromones, sync_ant_count, sync_nests, sync_predator_count, tally_crowding, update_stats,
 };
 use crate::world::{FoodField, Nests};
 
@@ -68,6 +69,11 @@ impl Plugin for SimPlugin {
                 decide_heading,
                 move_ants,
                 move_predators,
+                // Order matters: the tally must see final positions, and the
+                // relief must land before the trail is laid so a pushed ant
+                // writes pheromone where it actually ended up.
+                tally_crowding,
+                relieve_crowding,
                 deposit_pheromones,
                 pickup_food,
                 deliver_food,
@@ -99,7 +105,7 @@ pub fn init_simulation(world: &mut World) {
     for index in 0..config.colonies() {
         let nest = *nests.get(index);
         for _ in 0..config.ant_count {
-            let ant = newborn_ant(AntColony(index), &nest, &mut rng, config.spawn_radius);
+            let ant = newborn_ant(AntColony(index), &nest, &mut rng, &config);
             world.spawn(ant);
         }
     }
@@ -113,6 +119,7 @@ pub fn init_simulation(world: &mut World) {
         MAX_COLONIES,
     ));
     world.insert_resource(Obstacles::new(config.width, config.height));
+    world.insert_resource(CrowdGrid::new(config.width, config.height, CROWD_BIN));
     world.insert_resource(SimStats {
         food_initial: initial_food,
         food_remaining: initial_food,
@@ -150,7 +157,7 @@ pub fn reset_simulation(world: &mut World) {
     for index in 0..config.colonies() {
         let nest = *nests.get(index);
         for _ in 0..config.ant_count {
-            let ant = newborn_ant(AntColony(index), &nest, &mut rng, config.spawn_radius);
+            let ant = newborn_ant(AntColony(index), &nest, &mut rng, &config);
             world.spawn(ant);
         }
     }
@@ -167,6 +174,7 @@ pub fn reset_simulation(world: &mut World) {
     // tick, and the revision bump makes the renderer and the pheromone scrubber
     // notice.
     world.insert_resource(Obstacles::new(config.width, config.height));
+    world.insert_resource(CrowdGrid::new(config.width, config.height, CROWD_BIN));
     world.insert_resource(SimStats {
         food_initial: initial_food,
         food_remaining: initial_food,

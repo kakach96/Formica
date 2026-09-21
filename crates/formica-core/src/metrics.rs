@@ -48,6 +48,8 @@ pub struct Sample {
     pub food_pheromone: f64,
     /// Total pheromone mass in the home fields, all colonies.
     pub home_pheromone: f64,
+    /// Ants in the busiest 4x4-cell bin at this sample.
+    pub crowd_max_bin: u32,
 }
 
 impl Sample {
@@ -98,6 +100,19 @@ pub struct SimStats {
     pub food_pheromone_total: f64,
     /// Total pheromone mass in the home fields (diagnostic).
     pub home_pheromone_total: f64,
+    /// Ants in the busiest 4x4-cell bin right now.
+    ///
+    /// The concentration readout. A colony spread evenly over a 256x256 map
+    /// puts 500 ants into 4096 bins and no bin holds more than two or three; a
+    /// colony collapsed onto a bottleneck puts hundreds into one. This is the
+    /// number that says whether the optimisation in `systems::crowd` is doing
+    /// anything, so it is reported live rather than left to the eye.
+    pub crowd_max_bin: u32,
+    /// Worst `crowd_max_bin` seen over the whole run.
+    pub crowd_peak_bin: u32,
+    /// Coarse bins holding at least one ant. Falls when the colony bunches up
+    /// even if no single bin is extreme.
+    pub crowd_occupied: u32,
     /// Downsampled delivery curve.
     pub samples: Vec<Sample>,
 }
@@ -183,6 +198,7 @@ impl SimStats {
             food_remaining: self.food_remaining,
             food_pheromone: self.food_pheromone_total,
             home_pheromone: self.home_pheromone_total,
+            crowd_max_bin: self.crowd_max_bin,
         });
     }
 }

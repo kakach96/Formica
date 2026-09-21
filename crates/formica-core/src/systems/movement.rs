@@ -6,7 +6,7 @@
 
 use bevy_ecs::prelude::*;
 
-use crate::ant::{AntHeading, AntPos};
+use crate::ant::{AntHeading, AntPos, AntVigor};
 use crate::config::SimConfig;
 use crate::motion::{self, MotionField};
 use crate::obstacles::Obstacles;
@@ -17,7 +17,7 @@ pub fn move_ants(
     config: Res<SimConfig>,
     obstacles: Res<Obstacles>,
     mut rng: ResMut<SimRng>,
-    mut ants: Query<(&mut AntPos, &mut AntHeading)>,
+    mut ants: Query<(&mut AntPos, &mut AntHeading, Option<&AntVigor>)>,
 ) {
     let field = MotionField {
         width: config.width,
@@ -25,8 +25,19 @@ pub fn move_ants(
         obstacles: &obstacles,
     };
     let speed = config.speed;
-    for (mut pos, mut heading) in ants.iter_mut() {
-        let result = motion::step(pos.x, pos.y, heading.angle, speed, field, &mut rng);
+    for (mut pos, mut heading, vigor) in ants.iter_mut() {
+        // An ant with no `AntVigor` walks at the configured speed; a real ant
+        // walks at its own fraction of it, so the colony's front smears out
+        // instead of arriving as one thin line.
+        let scale = vigor.copied().unwrap_or_default().speed;
+        let result = motion::step(
+            pos.x,
+            pos.y,
+            heading.angle,
+            speed * scale,
+            field,
+            &mut rng,
+        );
         pos.x = result.x;
         pos.y = result.y;
         heading.angle = result.angle;
