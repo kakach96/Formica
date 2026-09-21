@@ -1,0 +1,8 @@
+# Store LF in the repository regardless of the platform that commits, so a
+# clone on Windows and a clone on Linux produce the same tree.
+* text=auto eol=lf
+
+# Binary assets must never be line-ending converted.
+*.png binary
+*.jpg binary
+*.ico binary

@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/formica-core",
+    "crates/formica-headless",
+    "crates/formica-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://example.invalid/formica"
+
+[workspace.dependencies]
+formica-core = { path = "crates/formica-core" }
+bevy = { version = "0.19.1", default-features = false }
+bevy_egui = "0.42.0"
+
+# The simulator is allocation-light but loop-heavy: 500 ants x pheromone grid
+# sweeps every tick. Optimising dependencies even in dev builds keeps the
+# interactive app at frame rate without forcing a full `--release` cycle.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

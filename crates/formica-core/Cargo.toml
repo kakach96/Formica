@@ -1,0 +1,13 @@
+[package]
+name = "formica-core"
+description = "Headless ant-colony foraging simulation core (Bevy ECS, no renderer)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bevy_ecs = { version = "0.19.1", default-features = true }
+bevy_app = { version = "0.19.1", default-features = true }
+
+[dev-dependencies]
+# Used by the acceptance test that drives 5000 ticks headlessly.

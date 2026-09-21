@@ -1,0 +1,13 @@
+[package]
+name = "formica-headless"
+description = "Phase 1: renderer-free CLI runner that ticks the colony and prints the delivery curve."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "formica"
+path = "src/main.rs"
+
+[dependencies]
+formica-core.workspace = true
