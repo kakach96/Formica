@@ -216,8 +216,8 @@ impl Obstacles {
 
                 // The two arms run from the closed back (lx = -arm) up to the
                 // mouth (lx = 0), at ly = +/- gap/2.
-                let on_arm = (ly.abs() - half_gap).abs() <= half_thickness
-                    && (-arm..=0.0).contains(&lx);
+                let on_arm =
+                    (ly.abs() - half_gap).abs() <= half_thickness && (-arm..=0.0).contains(&lx);
                 // The back caps the far end.
                 let on_back =
                     (lx + arm).abs() <= half_thickness && ly.abs() <= half_gap + half_thickness;
@@ -250,7 +250,12 @@ pub fn sync_obstacles(
     if obstacles.width != config.width || obstacles.height != config.height {
         obstacles.resize(config.width, config.height);
     }
-    obstacles.apply_preset(config.obstacle_preset, &config, &nests.centers(), &food.piles);
+    obstacles.apply_preset(
+        config.obstacle_preset,
+        &config,
+        &nests.centers(),
+        &food.piles,
+    );
 }
 
 #[cfg(test)]
@@ -309,13 +314,7 @@ mod tests {
     /// Tests reason in local coordinates (`lx` along the opening, `ly` across
     /// it) because that is how the shape is defined; guessing world cells is
     /// what let the arm-placement bug slip through the first time.
-    fn wall_cell(
-        interior: (f32, f32),
-        opening: f32,
-        arm: f32,
-        lx: f32,
-        ly: f32,
-    ) -> (i32, i32) {
+    fn wall_cell(interior: (f32, f32), opening: f32, arm: f32, lx: f32, ly: f32) -> (i32, i32) {
         let (sin, cos) = opening.sin_cos();
         let origin = (interior.0 + cos * arm * 0.5, interior.1 + sin * arm * 0.5);
         let wx = origin.0 + lx * cos - ly * sin;
@@ -509,7 +508,10 @@ mod tests {
                 "a nest was entombed"
             );
         }
-        assert!(obstacles.coverage() > 0.1, "density 0.5 produced almost nothing");
+        assert!(
+            obstacles.coverage() > 0.1,
+            "density 0.5 produced almost nothing"
+        );
         assert!(obstacles.coverage() < 0.9);
     }
 

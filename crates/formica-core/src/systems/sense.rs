@@ -45,12 +45,27 @@ pub fn sense_pheromones(
         let (cx, cy) = (h.cos(), h.sin());
         let (rx, ry) = ((h + half_angle).cos(), (h + half_angle).sin());
 
-        sensors.left =
-            grid.sample_box(colony, kind, pos.x + lx * distance, pos.y + ly * distance, box_radius);
-        sensors.center =
-            grid.sample_box(colony, kind, pos.x + cx * distance, pos.y + cy * distance, box_radius);
-        sensors.right =
-            grid.sample_box(colony, kind, pos.x + rx * distance, pos.y + ry * distance, box_radius);
+        sensors.left = grid.sample_box(
+            colony,
+            kind,
+            pos.x + lx * distance,
+            pos.y + ly * distance,
+            box_radius,
+        );
+        sensors.center = grid.sample_box(
+            colony,
+            kind,
+            pos.x + cx * distance,
+            pos.y + cy * distance,
+            box_radius,
+        );
+        sensors.right = grid.sample_box(
+            colony,
+            kind,
+            pos.x + rx * distance,
+            pos.y + ry * distance,
+            box_radius,
+        );
     }
 }
 

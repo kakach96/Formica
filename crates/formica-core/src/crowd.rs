@@ -211,7 +211,10 @@ mod tests {
         let grid = CrowdGrid::new(10, 10, 4);
         assert_eq!((grid.bins_x, grid.bins_y), (3, 3));
         assert!(grid.bin_of(9.5, 9.5).is_some(), "the last cell fell off");
-        assert!(grid.bin_of(10.0, 5.0).is_none(), "an off-map cell was counted");
+        assert!(
+            grid.bin_of(10.0, 5.0).is_none(),
+            "an off-map cell was counted"
+        );
         assert!(grid.bin_of(-1.0, 5.0).is_none());
     }
 
@@ -225,13 +228,7 @@ mod tests {
     #[test]
     fn rebuild_counts_each_bin_and_tracks_the_busiest() {
         let mut grid = CrowdGrid::new(16, 16, 4);
-        let positions = [
-            (0.5, 0.5),
-            (1.5, 0.5),
-            (2.5, 0.5),
-            (8.5, 8.5),
-            (9.5, 8.5),
-        ];
+        let positions = [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (8.5, 8.5), (9.5, 8.5)];
         grid.rebuild(positions.into_iter());
 
         assert_eq!(grid.total, 5);
@@ -340,7 +337,9 @@ mod tests {
             (1, 0) => 0,
             _ => 5,
         });
-        let (dx, dy) = grid.escape_direction(0.5, 0.5).expect("no escape from a corner");
+        let (dx, dy) = grid
+            .escape_direction(0.5, 0.5)
+            .expect("no escape from a corner");
         assert!(dx > 0.0 && dy.abs() < 1e-6, "got ({dx}, {dy})");
     }
 }

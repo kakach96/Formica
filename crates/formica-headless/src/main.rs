@@ -12,6 +12,9 @@
 //! cargo run -p formica-headless --release -- --predators 5 --colonies 2
 //! cargo run -p formica-headless --release -- --sweep-evaporation 0.01,0.05,0.1,0.2
 //! ```
+//!
+//! The output language follows `FORMICA_LANG` or `--lang en|zh` (English by
+//! default, because a Windows console's default code page cannot render CJK).
 
 use std::fmt::Write as _;
 use std::process::ExitCode;
@@ -19,88 +22,34 @@ use std::process::ExitCode;
 use formica_core::obstacles::Obstacles;
 use formica_core::prelude::*;
 
-const HELP: &str = "\
-Formica - ant colony foraging simulation (headless)
-
-USAGE:
-    formica [OPTIONS]
-
-COLONY
-    --ants N              Ants per colony                  [default: 500]
-    --colonies N          Competing colonies, 1..=2        [default: 1]
-    --ticks N             Simulation ticks to run          [default: 5000]
-    --seed N              RNG seed                         [default: 20240517]
-
-WORLD
-    --width N             Map width in cells               [default: 256]
-    --height N            Map height in cells              [default: 256]
-    --piles N             Food piles, 1..=8                [default: 3]
-    --food-per-pile F     Food units per pile              [default: 3000]
-    --pile-radius F       Food pile radius in cells        [default: 6]
-    --nest-radius F       Nest radius in cells             [default: 4]
-    --nest-orbit F        Nest distance from centre, 2 colonies  [default: 55]
-
-OBSTACLES
-    --obstacles KIND      none | u-wall | blocks           [default: none]
-    --u-wall-arm F        U-wall arm length in cells       [default: 14]
-    --u-wall-gap F        U-wall clear width in cells      [default: 14]
-    --u-wall-thickness F  U-wall thickness in cells        [default: 3]
-    --block-density F     Cell wall probability, 0..1      [default: 0.15]
-
-PREDATORS
-    --predators N         Number of predators, 0 = off     [default: 0]
-    --predator-speed F    Cells per tick                   [default: 1.6]
-    --predator-sense F    Sight radius in cells            [default: 26]
-    --predator-catch F    Catch radius in cells            [default: 3]
-
-PHEROMONES AND BEHAVIOUR
-    --evaporation F       Decay per tick, c *= (1 - F)     [default: 0.1]
-    --deposit F           Pheromone laid per ant per tick  [default: 1.0]
-    --deposit-radius N    Deposit kernel radius, 0..=3     [default: 1]
-    --sensor-distance F   Antenna reach in cells           [default: 3.0]
-    --sensor-angle F      Antenna half-angle in radians    [default: 0.6]
-    --sensor-box N        Box average radius per antenna   [default: 1]
-    --random-walk F       Heading jitter per tick, radians [default: 0.3]
-    --turn-gain F         Turn toward the best antenna     [default: 0.6]
-    --speed F             Cells per tick                   [default: 2.0]
-    --individuality F     Per-ant trait spread, 0 = clones [default: 0.6]
-
-CROWDING
-    --crowd-threshold F   Ants per 4x4 bin counted as a jam [default: 24]
-    --crowd-relief F      Cells an ant steps out of a jam  [default: 0.6]
-
-OUTPUT
-    --sample-interval N   Ticks between curve samples      [default: 10]
-    --report-every N      Progress line interval, 0=off    [default: 500]
-    --csv PATH            Write the curve to a CSV file
-    --quiet               Only print the final report
-    --chart-width N       ASCII chart width                [default: 78]
-    --chart-height N      ASCII chart height               [default: 16]
-
-EXPERIMENTS
-    --sweep-evaporation L  Comma-separated values; runs each and compares
-    --sweep-random-walk L  Comma-separated values; runs each and compares
-    --sweep-predators L    Comma-separated predator counts; runs each
-    --sweep-individuality L  Comma-separated trait-spread values; runs each
-
-    -h, --help            Show this help
-
-EXIT CODE
-    0 if any colony delivered food, 1 if none did.
-";
-
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let opts = match Options::parse(&args) {
+    // The language is resolved before anything prints, so `--help` and error
+    // messages come out in the requested tongue. `FORMICA_LANG` covers whole
+    // sessions; `--lang` wins when both are given.
+    let mut lang = std::env::var("FORMICA_LANG")
+        .ok()
+        .and_then(|raw| Lang::parse(&raw))
+        .unwrap_or_default();
+    if let Some(pos) = args.iter().position(|a| a == "--lang") {
+        if let Some(raw) = args.get(pos + 1) {
+            if let Some(parsed) = Lang::parse(raw) {
+                lang = parsed;
+            }
+        }
+    }
+    let s = lang.strings();
+
+    let opts = match Options::parse(&args, s) {
         Ok(Some(opts)) => opts,
         Ok(None) => {
-            print!("{HELP}");
+            print!("{}", s.help_text);
             return ExitCode::SUCCESS;
         }
         Err(message) => {
-            eprintln!("error: {message}\n");
-            eprint!("{HELP}");
+            eprintln!("{}: {message}\n", s.error_prefix);
+            eprint!("{}", s.help_text);
             return ExitCode::from(2);
         }
     };
@@ -118,9 +67,23 @@ fn main() -> ExitCode {
 
     if let Some(path) = &opts.csv {
         match write_csv(path, &outcome.stats) {
-            Ok(()) => println!("\nwrote {} samples to {path}", outcome.stats.samples.len()),
+            Ok(()) => println!(
+                "\n{}",
+                opts.lang
+                    .strings()
+                    .csv_written_fmt
+                    .replace("{n}", &outcome.stats.samples.len().to_string())
+                    .replace("{path}", path)
+            ),
             Err(err) => {
-                eprintln!("\nfailed to write {path}: {err}");
+                eprintln!(
+                    "\n{}",
+                    opts.lang
+                        .strings()
+                        .csv_failed_fmt
+                        .replace("{path}", path)
+                        .replace("{err}", &err.to_string())
+                );
                 return ExitCode::from(3);
             }
         }
@@ -146,6 +109,7 @@ struct Options {
     quiet: bool,
     chart_width: usize,
     chart_height: usize,
+    lang: Lang,
     evaporation_sweep: Vec<f32>,
     random_walk_sweep: Vec<f32>,
     predator_sweep: Vec<f32>,
@@ -162,6 +126,7 @@ impl Default for Options {
             quiet: false,
             chart_width: 78,
             chart_height: 16,
+            lang: Lang::default(),
             evaporation_sweep: Vec::new(),
             random_walk_sweep: Vec::new(),
             predator_sweep: Vec::new(),
@@ -172,24 +137,33 @@ impl Default for Options {
 
 impl Options {
     /// Returns `Ok(None)` when `--help` was requested.
-    fn parse(args: &[String]) -> Result<Option<Self>, String> {
+    ///
+    /// `s` is the table the *initial* language resolved to, used for error
+    /// messages while parsing; the resolved language is stored on the options
+    /// once parsing succeeds.
+    fn parse(args: &[String], s: &'static Strings) -> Result<Option<Self>, String> {
         let mut opts = Self::default();
         let mut i = 0;
 
-        fn value<'a>(args: &'a [String], i: &mut usize, flag: &str) -> Result<&'a str, String> {
+        fn value<'a>(
+            args: &'a [String],
+            i: &mut usize,
+            flag: &str,
+            s: &'static Strings,
+        ) -> Result<&'a str, String> {
             *i += 1;
-            args.get(*i)
-                .map(|s| s.as_str())
-                .ok_or_else(|| format!("{flag} needs a value"))
+            let message = format!("{flag} {}", s.err_needs_value);
+            args.get(*i).map(|s| s.as_str()).ok_or_else(move || message)
         }
         fn number<T: std::str::FromStr>(
             args: &[String],
             i: &mut usize,
             flag: &str,
+            s: &'static Strings,
         ) -> Result<T, String> {
-            let raw = value(args, i, flag)?;
+            let raw = value(args, i, flag, s)?;
             raw.parse::<T>()
-                .map_err(|_| format!("{flag}: '{raw}' is not a valid number"))
+                .map_err(|_| format!("{flag}: {}", s.err_not_a_number.replace("{raw}", raw)))
         }
 
         while i < args.len() {
@@ -197,21 +171,21 @@ impl Options {
             match flag {
                 "-h" | "--help" => return Ok(None),
 
-                "--ants" => opts.config.ant_count = number(args, &mut i, flag)?,
-                "--colonies" => opts.config.colony_count = number(args, &mut i, flag)?,
-                "--ticks" => opts.ticks = number(args, &mut i, flag)?,
-                "--seed" => opts.config.seed = number(args, &mut i, flag)?,
+                "--ants" => opts.config.ant_count = number(args, &mut i, flag, s)?,
+                "--colonies" => opts.config.colony_count = number(args, &mut i, flag, s)?,
+                "--ticks" => opts.ticks = number(args, &mut i, flag, s)?,
+                "--seed" => opts.config.seed = number(args, &mut i, flag, s)?,
 
-                "--width" => opts.config.width = number(args, &mut i, flag)?,
-                "--height" => opts.config.height = number(args, &mut i, flag)?,
-                "--piles" => opts.config.food_pile_count = number(args, &mut i, flag)?,
-                "--food-per-pile" => opts.config.food_per_pile = number(args, &mut i, flag)?,
-                "--pile-radius" => opts.config.food_pile_radius = number(args, &mut i, flag)?,
-                "--nest-radius" => opts.config.nest_radius = number(args, &mut i, flag)?,
-                "--nest-orbit" => opts.config.nest_orbit = number(args, &mut i, flag)?,
+                "--width" => opts.config.width = number(args, &mut i, flag, s)?,
+                "--height" => opts.config.height = number(args, &mut i, flag, s)?,
+                "--piles" => opts.config.food_pile_count = number(args, &mut i, flag, s)?,
+                "--food-per-pile" => opts.config.food_per_pile = number(args, &mut i, flag, s)?,
+                "--pile-radius" => opts.config.food_pile_radius = number(args, &mut i, flag, s)?,
+                "--nest-radius" => opts.config.nest_radius = number(args, &mut i, flag, s)?,
+                "--nest-orbit" => opts.config.nest_orbit = number(args, &mut i, flag, s)?,
 
                 "--obstacles" => {
-                    let raw = value(args, &mut i, flag)?;
+                    let raw = value(args, &mut i, flag, s)?;
                     // Keep the geometry the user already set on the command
                     // line; only the shape changes here. Flags are applied in
                     // order, so `--u-wall-arm 20 --obstacles u-wall` works.
@@ -228,74 +202,79 @@ impl Options {
                         ObstaclePreset::RandomBlocks { density } => {
                             ObstaclePreset::RandomBlocks { density }
                         }
-                        ObstaclePreset::None => parse_obstacle_kind(raw)?,
+                        ObstaclePreset::None => parse_obstacle_kind(raw, s)?,
                     };
                 }
                 "--u-wall-arm" => {
-                    let arm: f32 = number(args, &mut i, flag)?;
+                    let arm: f32 = number(args, &mut i, flag, s)?;
                     opts.config.obstacle_preset =
                         with_u_wall(opts.config.obstacle_preset, Some(arm), None, None);
                 }
                 "--u-wall-gap" => {
-                    let gap: f32 = number(args, &mut i, flag)?;
+                    let gap: f32 = number(args, &mut i, flag, s)?;
                     opts.config.obstacle_preset =
                         with_u_wall(opts.config.obstacle_preset, None, Some(gap), None);
                 }
                 "--u-wall-thickness" => {
-                    let thickness: f32 = number(args, &mut i, flag)?;
+                    let thickness: f32 = number(args, &mut i, flag, s)?;
                     opts.config.obstacle_preset =
                         with_u_wall(opts.config.obstacle_preset, None, None, Some(thickness));
                 }
                 "--block-density" => {
-                    let density = number(args, &mut i, flag)?;
+                    let density = number(args, &mut i, flag, s)?;
                     opts.config.obstacle_preset = ObstaclePreset::RandomBlocks { density };
                 }
 
-                "--predators" => opts.config.predator_count = number(args, &mut i, flag)?,
-                "--predator-speed" => opts.config.predator_speed = number(args, &mut i, flag)?,
-                "--predator-sense" => opts.config.predator_sense = number(args, &mut i, flag)?,
+                "--predators" => opts.config.predator_count = number(args, &mut i, flag, s)?,
+                "--predator-speed" => opts.config.predator_speed = number(args, &mut i, flag, s)?,
+                "--predator-sense" => opts.config.predator_sense = number(args, &mut i, flag, s)?,
                 "--predator-catch" => {
-                    opts.config.predator_catch_radius = number(args, &mut i, flag)?
+                    opts.config.predator_catch_radius = number(args, &mut i, flag, s)?
                 }
 
-                "--evaporation" => opts.config.evaporation_rate = number(args, &mut i, flag)?,
-                "--deposit" => opts.config.deposit_amount = number(args, &mut i, flag)?,
-                "--deposit-radius" => opts.config.deposit_radius = number(args, &mut i, flag)?,
-                "--sensor-distance" => opts.config.sensor_distance = number(args, &mut i, flag)?,
-                "--sensor-angle" => opts.config.sensor_angle = number(args, &mut i, flag)?,
-                "--sensor-box" => opts.config.sensor_box_radius = number(args, &mut i, flag)?,
-                "--random-walk" => opts.config.random_walk_strength = number(args, &mut i, flag)?,
-                "--turn-gain" => opts.config.sensor_turn_gain = number(args, &mut i, flag)?,
-                "--speed" => opts.config.speed = number(args, &mut i, flag)?,
-                "--individuality" => {
-                    opts.config.individuality = number(args, &mut i, flag)?
+                "--evaporation" => opts.config.evaporation_rate = number(args, &mut i, flag, s)?,
+                "--deposit" => opts.config.deposit_amount = number(args, &mut i, flag, s)?,
+                "--deposit-radius" => opts.config.deposit_radius = number(args, &mut i, flag, s)?,
+                "--sensor-distance" => opts.config.sensor_distance = number(args, &mut i, flag, s)?,
+                "--sensor-angle" => opts.config.sensor_angle = number(args, &mut i, flag, s)?,
+                "--sensor-box" => opts.config.sensor_box_radius = number(args, &mut i, flag, s)?,
+                "--random-walk" => {
+                    opts.config.random_walk_strength = number(args, &mut i, flag, s)?
                 }
-                "--crowd-threshold" => {
-                    opts.config.crowd_threshold = number(args, &mut i, flag)?
-                }
-                "--crowd-relief" => opts.config.crowd_relief = number(args, &mut i, flag)?,
+                "--turn-gain" => opts.config.sensor_turn_gain = number(args, &mut i, flag, s)?,
+                "--speed" => opts.config.speed = number(args, &mut i, flag, s)?,
+                "--individuality" => opts.config.individuality = number(args, &mut i, flag, s)?,
+                "--crowd-threshold" => opts.config.crowd_threshold = number(args, &mut i, flag, s)?,
+                "--crowd-relief" => opts.config.crowd_relief = number(args, &mut i, flag, s)?,
 
-                "--sample-interval" => opts.config.sample_interval = number(args, &mut i, flag)?,
-                "--report-every" => opts.report_every = number(args, &mut i, flag)?,
-                "--csv" => opts.csv = Some(value(args, &mut i, flag)?.to_string()),
+                "--sample-interval" => opts.config.sample_interval = number(args, &mut i, flag, s)?,
+                "--report-every" => opts.report_every = number(args, &mut i, flag, s)?,
+                "--csv" => opts.csv = Some(value(args, &mut i, flag, s)?.to_string()),
                 "--quiet" => opts.quiet = true,
-                "--chart-width" => opts.chart_width = number(args, &mut i, flag)?,
-                "--chart-height" => opts.chart_height = number(args, &mut i, flag)?,
+                "--lang" => {
+                    let raw = value(args, &mut i, flag, s)?;
+                    opts.lang =
+                        Lang::parse(raw).ok_or_else(|| s.err_not_a_number.replace("{raw}", raw))?;
+                }
+                "--chart-width" => opts.chart_width = number(args, &mut i, flag, s)?,
+                "--chart-height" => opts.chart_height = number(args, &mut i, flag, s)?,
 
                 "--sweep-evaporation" => {
-                    opts.evaporation_sweep = parse_list(value(args, &mut i, flag)?, flag)?
+                    opts.evaporation_sweep = parse_list(value(args, &mut i, flag, s)?, flag, s)?
                 }
                 "--sweep-random-walk" => {
-                    opts.random_walk_sweep = parse_list(value(args, &mut i, flag)?, flag)?
+                    opts.random_walk_sweep = parse_list(value(args, &mut i, flag, s)?, flag, s)?
                 }
                 "--sweep-predators" => {
-                    opts.predator_sweep = parse_list(value(args, &mut i, flag)?, flag)?
+                    opts.predator_sweep = parse_list(value(args, &mut i, flag, s)?, flag, s)?
                 }
                 "--sweep-individuality" => {
-                    opts.individuality_sweep = parse_list(value(args, &mut i, flag)?, flag)?
+                    opts.individuality_sweep = parse_list(value(args, &mut i, flag, s)?, flag, s)?
                 }
 
-                other => return Err(format!("unknown option '{other}'")),
+                other => {
+                    return Err(s.err_unknown_option.replace("{flag}", other));
+                }
             }
             i += 1;
         }
@@ -339,7 +318,7 @@ fn with_u_wall(
     }
 }
 
-fn parse_obstacle_kind(raw: &str) -> Result<ObstaclePreset, String> {
+fn parse_obstacle_kind(raw: &str, s: &'static Strings) -> Result<ObstaclePreset, String> {
     match raw.to_ascii_lowercase().replace('_', "-").as_str() {
         "none" | "off" | "open" => Ok(ObstaclePreset::None),
         "u-wall" | "u" | "wall" => Ok(ObstaclePreset::UWall {
@@ -348,18 +327,16 @@ fn parse_obstacle_kind(raw: &str) -> Result<ObstaclePreset, String> {
             thickness: 3.0,
         }),
         "blocks" | "random" | "rubble" => Ok(ObstaclePreset::RandomBlocks { density: 0.15 }),
-        other => Err(format!(
-            "--obstacles: unknown kind '{other}' (expected none, u-wall or blocks)"
-        )),
+        other => Err(s.err_unknown_obstacle.replace("{kind}", other)),
     }
 }
 
-fn parse_list(raw: &str, flag: &str) -> Result<Vec<f32>, String> {
+fn parse_list(raw: &str, flag: &str, s: &'static Strings) -> Result<Vec<f32>, String> {
     raw.split(',')
         .map(|part| {
             let part = part.trim();
             part.parse::<f32>()
-                .map_err(|_| format!("{flag}: '{part}' is not a valid number"))
+                .map_err(|_| format!("{flag}: {}", s.err_not_a_number.replace("{raw}", part)))
         })
         .collect()
 }
@@ -374,18 +351,20 @@ struct Outcome {
 }
 
 fn run_once(opts: &Options) -> Outcome {
+    let s = opts.lang.strings();
     let mut app = headless_app(opts.config.clone());
     let interval = opts.report_every;
 
     if !opts.quiet && interval > 0 {
         println!(
-            "running {} ticks ({} ants x {} colony, {}x{}, evaporation {:.3})...",
-            opts.ticks,
-            opts.config.ant_count,
-            opts.config.colonies(),
-            opts.config.width,
-            opts.config.height,
-            opts.config.evaporation_rate
+            "{}",
+            s.running_fmt
+                .replace("{ticks}", &opts.ticks.to_string())
+                .replace("{ants}", &opts.config.ant_count.to_string())
+                .replace("{colonies}", &opts.config.colonies().to_string())
+                .replace("{w}", &opts.config.width.to_string())
+                .replace("{h}", &opts.config.height.to_string())
+                .replace("{evap:.3}", &format!("{:.3}", opts.config.evaporation_rate))
         );
     }
 
@@ -402,15 +381,17 @@ fn run_once(opts: &Options) -> Outcome {
         if !opts.quiet && interval > 0 {
             let stats = app.world().resource::<SimStats>();
             println!(
-                "  tick {:>6}  delivered {:>9.1} ({:>5.1}%)  searching {:>5}  returning {:>5}  food left {:>9.1}  eaten {}  busiest bin {}",
-                stats.tick,
-                stats.delivered_total,
-                stats.recovery_fraction() * 100.0,
-                stats.searching,
-                stats.returning,
-                stats.food_remaining,
-                stats.ants_eaten,
-                stats.crowd_max_bin
+                "{}",
+                s.progress_line(
+                    stats.tick,
+                    stats.delivered_total,
+                    stats.recovery_fraction() * 100.0,
+                    stats.searching,
+                    stats.returning,
+                    stats.food_remaining,
+                    stats.ants_eaten,
+                    stats.crowd_max_bin,
+                )
             );
         }
     }
@@ -421,14 +402,16 @@ fn run_once(opts: &Options) -> Outcome {
 }
 
 fn print_report(opts: &Options, outcome: &Outcome) {
+    let s = opts.lang.strings();
     let config = &opts.config;
     let stats = &outcome.stats;
     let report = analyze(&stats.samples);
     let colonies = config.colonies();
 
-    println!("\n=== Formica colony foraging run ===");
+    println!("\n{}", s.report_header);
     println!(
-        "world      {}x{} cells, {} ants x {} colony = {} ants, {} food piles x {:.0} = {:.0} units",
+        "{}         {}x{} cells, {} ants x {} colony = {} ants, {} food piles x {:.0} = {:.0} units",
+        s.report_world,
         config.width,
         config.height,
         config.ant_count,
@@ -439,7 +422,8 @@ fn print_report(opts: &Options, outcome: &Outcome) {
         stats.food_initial
     );
     println!(
-        "behaviour  evaporation {:.3}/tick, deposit {:.2} (kernel r={}), sensor r={:.1} @ {:.2} rad (box {}), walk {:.2}, turn-gain {:.2}, speed {:.1}/tick, individuality {:.2}",
+        "{}  evaporation {:.3}/tick, deposit {:.2} (kernel r={}), sensor r={:.1} @ {:.2} rad (box {}), walk {:.2}, turn-gain {:.2}, speed {:.1}/tick, individuality {:.2}",
+        s.report_behaviour,
         config.evaporation_rate,
         config.deposit_amount,
         config.deposit_radius,
@@ -453,15 +437,18 @@ fn print_report(opts: &Options, outcome: &Outcome) {
     );
     if !matches!(config.obstacle_preset, ObstaclePreset::None) {
         println!(
-            "obstacles  {} - {} wall cells ({:.1}% of the map)",
-            config.obstacle_preset.label(),
+            "{}  {} - {} {} ({:.1}% of the map)",
+            s.report_obstacles,
+            config.obstacle_preset.label_for(s),
             outcome.walls,
+            s.wall_cells,
             100.0 * outcome.walls as f32 / config.cell_count() as f32
         );
     }
     if config.predator_count > 0 {
         println!(
-            "predators  {} at {:.1} cells/tick, sense {:.0}, catch radius {:.0} - {} ants eaten",
+            "{}  {} at {:.1} cells/tick, sense {:.0}, catch radius {:.0} - {} ants eaten",
+            s.report_predators,
             config.predator_count,
             config.predator_speed,
             config.predator_sense,
@@ -469,97 +456,119 @@ fn print_report(opts: &Options, outcome: &Outcome) {
             stats.ants_eaten
         );
     }
-    println!("seed       {}", config.seed);
+    println!("{}       {}", s.report_seed, config.seed);
 
-    println!("\n--- cumulative food delivered vs tick (all colonies) ---");
+    println!("\n{}", s.chart_title);
     print!(
         "{}",
         ascii_curve(&stats.samples, opts.chart_width, opts.chart_height)
     );
 
     if colonies > 1 {
-        println!("--- per colony ---");
+        println!("{}", s.per_colony_title);
         for index in 0..colonies {
-            let colony = analyze_series(&stats.samples, move |s| s.colony(index));
+            let colony = analyze_series(&stats.samples, move |sample| sample.colony(index));
             println!(
-                "  colony {index}: delivered {:>8.1} ({:>5.1}% of the haul) in {:>5} trips, \
-                 50% at {:>6}, peak rate {:>6}",
-                stats.colony_total(index),
-                if stats.delivered_total > 0.0 {
-                    100.0 * stats.colony_total(index) / stats.delivered_total
-                } else {
-                    0.0
-                },
-                stats.colony_trips(index),
-                colony
-                    .t50
-                    .map(|t| t.to_string())
-                    .unwrap_or_else(|| "-".into()),
-                colony
-                    .t_peak_rate
-                    .map(|t| t.to_string())
-                    .unwrap_or_else(|| "-".into()),
+                "{}",
+                s.per_colony_fmt
+                    .replace("{index}", &index.to_string())
+                    .replace("{:>8.1}", &format!("{:>8.1}", stats.colony_total(index)))
+                    .replace(
+                        "{:>5.1}",
+                        &format!(
+                            "{:>5.1}",
+                            if stats.delivered_total > 0.0 {
+                                100.0 * stats.colony_total(index) / stats.delivered_total
+                            } else {
+                                0.0
+                            }
+                        )
+                    )
+                    .replace("{:>5}", &format!("{:>5}", stats.colony_trips(index)))
+                    .replace(
+                        "{:>6}",
+                        &format!(
+                            "{:>6}",
+                            colony
+                                .t50
+                                .map(|t| t.to_string())
+                                .unwrap_or_else(|| "-".into())
+                        )
+                    )
             );
             print!(
                 "{}",
-                ascii_series(&stats.samples, opts.chart_width, 8, move |s| s.colony(index))
+                ascii_series(&stats.samples, opts.chart_width, 8, move |s| s
+                    .colony(index))
             );
         }
     }
 
-    println!("\n--- milestones (tick at which N% of the final total was reached) ---");
+    println!("\n{}", s.milestones_title);
     let milestone = |label: &str, tick: Option<u64>| match tick {
         Some(t) => println!("  {label:<22} {t:>7}"),
         None => println!("  {label:<22}       -"),
     };
-    milestone("first delivery", report.t_first);
-    milestone("10% delivered", report.t10);
-    milestone("50% delivered", report.t50);
-    milestone("90% delivered", report.t90);
-    milestone("peak delivery rate", report.t_peak_rate);
+    milestone(s.m_first_delivery, report.t_first);
+    milestone(s.m_10, report.t10);
+    milestone(s.m_50, report.t50);
+    milestone(s.m_90, report.t90);
+    milestone(s.m_peak_rate, report.t_peak_rate);
 
-    println!("\n--- result ---");
+    println!("\n{}", s.result_title);
     println!(
-        "  delivered              {:>10.1} units in {} round trips",
-        stats.delivered_total, stats.deliveries
+        "  {:<22} {:>10.1} {} / {} {}",
+        s.r_delivered, stats.delivered_total, s.units_suffix, stats.deliveries, s.trips_suffix
     );
     println!(
-        "  recovery               {:>9.1}%  ({:.0} units left on the map)",
+        "  {:<22} {:>9.1}%  ({} {:.0})",
+        s.r_recovery,
         report.recovery_fraction * 100.0,
+        s.map_remaining,
         stats.food_remaining
     );
     if stats.food_removed > 0.0 {
         println!(
-            "  removed by the player  {:>10.1} units",
-            stats.food_removed
+            "  {:<22} {:>10.1} {}",
+            s.r_removed, stats.food_removed, s.units_suffix
         );
     }
     println!(
-        "  mean rate              {:>10.4} units/tick",
-        report.mean_rate
+        "  {:<22} {:>10.4} {}",
+        s.r_mean_rate, report.mean_rate, s.rate_unit
     );
     println!(
-        "  peak interval rate     {:>10.4} units/tick  (window of {} ticks)",
+        "  {:<22} {:>10.4} {}  ({} {} ticks)",
+        s.r_peak_rate,
         report.peak_rate / config.sample_interval.max(1) as f64,
+        s.rate_unit,
+        s.window_of,
         config.sample_interval
     );
-    println!("  sigmoid score          {:>10.2}", report.sigmoid_score);
+    println!("  {:<22} {:>10.2}", s.r_sigmoid, report.sigmoid_score);
     println!(
-        "  still rising at end    {:>10}",
-        if report.still_rising { "yes" } else { "no" }
+        "  {:<22} {:>10}",
+        s.r_still_rising,
+        if report.still_rising { s.r_yes } else { s.r_no }
     );
     println!(
-        "  ants at end            {:>10} searching / {} returning",
-        stats.searching, stats.returning
+        "  {:<22} {:>10} {} / {} {}",
+        s.r_ants_at_end, stats.searching, s.searching_label, stats.returning, s.returning_label
     );
     if stats.ants_eaten > 0 {
-        println!("  ants eaten             {:>10}", stats.ants_eaten);
+        println!("  {:<22} {:>10}", s.r_ants_eaten, stats.ants_eaten);
     }
     println!(
-        "  concentration          {:>10}  (ants in the busiest 4x4 bin; peak {}, over {} occupied bins)",
-        stats.crowd_max_bin, stats.crowd_peak_bin, stats.crowd_occupied
+        "  {:<22} {:>10}  ({}; {} {}, {} {})",
+        s.r_concentration,
+        stats.crowd_max_bin,
+        s.busiest_bin,
+        s.peak_label,
+        stats.crowd_peak_bin,
+        s.occupied_label,
+        stats.crowd_occupied
     );
-    println!("\n  VERDICT: {}", report.verdict());
+    println!("\n  {}: {}", s.verdict_label, report.verdict_for(s));
 }
 
 // ---------------------------------------------------------------------------
@@ -567,6 +576,7 @@ fn print_report(opts: &Options, outcome: &Outcome) {
 // ---------------------------------------------------------------------------
 
 fn run_sweeps(opts: &Options) -> ExitCode {
+    let s = opts.lang.strings();
     let sweeps: Vec<(&str, Vec<f32>)> = [
         ("evaporation", opts.evaporation_sweep.clone()),
         ("random-walk", opts.random_walk_sweep.clone()),
@@ -581,16 +591,19 @@ fn run_sweeps(opts: &Options) -> ExitCode {
 
     for (name, values) in sweeps {
         println!(
-            "\n=== sweep: {name} ({} ticks, {} ants x {} colony, {}x{}) ===",
-            opts.ticks,
-            opts.config.ant_count,
-            opts.config.colonies(),
-            opts.config.width,
-            opts.config.height
+            "\n{}",
+            s.sweep_header_fmt
+                .replace("{name}", name)
+                .replace("{ticks}", &opts.ticks.to_string())
+                .replace("{ants}", &opts.config.ant_count.to_string())
+                .replace("{colonies}", &opts.config.colonies().to_string())
+                .replace("{w}", &opts.config.width.to_string())
+                .replace("{h}", &opts.config.height.to_string())
         );
+        let headers = s.sweep_table();
         println!(
             "{:>14}  {:>10}  {:>8}  {:>8}  {:>8}  {:>7}  curve",
-            name, "delivered", "recovery", "sigmoid", "eaten", "1st tick"
+            name, headers[1], headers[2], headers[3], headers[4], headers[5]
         );
 
         for value in &values {

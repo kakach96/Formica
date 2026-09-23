@@ -58,12 +58,21 @@ pub enum ObstaclePreset {
 }
 
 impl ObstaclePreset {
-    /// Short label for the UI.
+    /// Short label for the UI (English).
     pub fn label(self) -> &'static str {
         match self {
             ObstaclePreset::None => "open field",
             ObstaclePreset::UWall { .. } => "U-shaped wall",
             ObstaclePreset::RandomBlocks { .. } => "scattered blocks",
+        }
+    }
+
+    /// [`ObstaclePreset::label`] in the language of the given string table.
+    pub fn label_for(self, s: &crate::i18n::Strings) -> &'static str {
+        match self {
+            ObstaclePreset::None => s.obstacle_none_label,
+            ObstaclePreset::UWall { .. } => s.obstacle_u_wall_label,
+            ObstaclePreset::RandomBlocks { .. } => s.obstacle_blocks_label,
         }
     }
 }
@@ -309,7 +318,9 @@ impl SimConfig {
         self.individuality = self.individuality.clamp(0.0, 3.0);
         // Two nests must both fit, and must not sit on top of each other.
         let max_orbit = self.width.min(self.height) as f32 * 0.5 - self.nest_radius - 2.0;
-        self.nest_orbit = self.nest_orbit.clamp(self.nest_radius * 2.0 + 4.0, max_orbit.max(1.0));
+        self.nest_orbit = self
+            .nest_orbit
+            .clamp(self.nest_radius * 2.0 + 4.0, max_orbit.max(1.0));
 
         self.evaporation_rate = self.evaporation_rate.clamp(0.0, 1.0);
         self.deposit_amount = self.deposit_amount.clamp(0.0, 1_000.0);

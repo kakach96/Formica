@@ -25,7 +25,8 @@ use crate::rng::SimRng;
 use crate::systems::{
     decide_heading, deliver_food, deposit_pheromones, evaporate_pheromones, move_ants,
     move_predators, pickup_food, predators_catch_ants, relieve_crowding, scrub_obstacle_pheromones,
-    sense_pheromones, sync_ant_count, sync_nests, sync_predator_count, tally_crowding, update_stats,
+    sense_pheromones, sync_ant_count, sync_nests, sync_predator_count, tally_crowding,
+    update_stats,
 };
 use crate::world::{FoodField, Nests};
 

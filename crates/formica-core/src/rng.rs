@@ -116,7 +116,11 @@ mod tests {
             assert!((-1.0..1.0).contains(&v));
             sum += v as f64;
         }
-        assert!((sum / N as f64).abs() < 0.01, "mean drifted: {}", sum / N as f64);
+        assert!(
+            (sum / N as f64).abs() < 0.01,
+            "mean drifted: {}",
+            sum / N as f64
+        );
     }
 
     /// A normal draw has to be centred, have unit-ish spread, and - the reason

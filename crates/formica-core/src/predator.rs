@@ -55,12 +55,7 @@ pub fn newborn_predator(
     height: usize,
     nests: &Nests,
     keep_clear: f32,
-) -> (
-    PredatorMarker,
-    PredatorPos,
-    PredatorHeading,
-    PredatorAlert,
-) {
+) -> (PredatorMarker, PredatorPos, PredatorHeading, PredatorAlert) {
     let margin = 4.0f32;
     let (mut x, mut y) = (margin, margin);
     for _ in 0..64 {

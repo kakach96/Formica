@@ -229,14 +229,7 @@ impl PheromoneGrid {
     /// legible to an ant: a single ant's deposit is a single cell, but the
     /// antenna sees a smoothed neighbourhood, so the comparison between the
     /// three antennae is stable instead of flickering.
-    pub fn sample_box(
-        &self,
-        colony: usize,
-        kind: Pheromone,
-        cx: f32,
-        cy: f32,
-        radius: i32,
-    ) -> f32 {
+    pub fn sample_box(&self, colony: usize, kind: Pheromone, cx: f32, cy: f32, radius: i32) -> f32 {
         let field = self.field(colony, kind);
         if radius <= 0 {
             return self.get(colony, kind, cx as i32, cy as i32);
@@ -463,7 +456,10 @@ mod tests {
         assert_eq!(grid.get(1, Pheromone::Home, 3, 3), 0.0);
 
         // ...and a deposit by colony 1 does not disturb colony 0.
-        grid.deposit_kernel(Deposit::new(1, Pheromone::Home, 3.0, 3.0, 4.0, 1, 1_000.0), |_, _| false);
+        grid.deposit_kernel(
+            Deposit::new(1, Pheromone::Home, 3.0, 3.0, 4.0, 1, 1_000.0),
+            |_, _| false,
+        );
         assert_eq!(grid.get(0, Pheromone::Food, 3, 3), 9.0);
         assert!(grid.get(1, Pheromone::Home, 3, 3) > 0.0);
     }
@@ -491,18 +487,22 @@ mod tests {
     #[test]
     fn deposit_kernel_conserves_mass_and_respects_cap() {
         let mut grid = PheromoneGrid::new(32, 32, 1);
-        grid.deposit_kernel(Deposit::new(0, Pheromone::Food, 16.0, 16.0, 1.0, 1, 1_000.0), |_, _| false);
+        grid.deposit_kernel(
+            Deposit::new(0, Pheromone::Food, 16.0, 16.0, 1.0, 1, 1_000.0),
+            |_, _| false,
+        );
         assert!(
             (grid.total(0, Pheromone::Food) - 1.0).abs() < 1e-4,
             "mass was {}",
             grid.total(0, Pheromone::Food)
         );
         // Centre of a 3x3 weight kernel gets the largest share.
-        assert!(
-            grid.get(0, Pheromone::Food, 16, 16) > grid.get(0, Pheromone::Food, 15, 16)
-        );
+        assert!(grid.get(0, Pheromone::Food, 16, 16) > grid.get(0, Pheromone::Food, 15, 16));
 
-        grid.deposit_kernel(Deposit::new(0, Pheromone::Food, 16.0, 16.0, 10.0, 1, 1.05), |_, _| false);
+        grid.deposit_kernel(
+            Deposit::new(0, Pheromone::Food, 16.0, 16.0, 10.0, 1, 1.05),
+            |_, _| false,
+        );
         assert!(grid.peak(0, Pheromone::Food) <= 1.05 + 1e-6);
     }
 
@@ -511,7 +511,10 @@ mod tests {
         let mut grid = PheromoneGrid::new(32, 32, 1);
         for radius in 0..=3 {
             grid.clear();
-            grid.deposit_kernel(Deposit::new(0, Pheromone::Food, 16.0, 16.0, 2.0, radius, 1_000.0), |_, _| false);
+            grid.deposit_kernel(
+                Deposit::new(0, Pheromone::Food, 16.0, 16.0, 2.0, radius, 1_000.0),
+                |_, _| false,
+            );
             assert!(
                 (grid.total(0, Pheromone::Food) - 2.0).abs() < 1e-3,
                 "radius {radius} deposited {}",

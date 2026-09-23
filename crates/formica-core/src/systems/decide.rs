@@ -87,9 +87,9 @@ pub fn decide_heading(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::Nest;
     use bevy_ecs::system::RunSystemOnce;
     use bevy_ecs::world::World;
-    use crate::world::Nest;
 
     fn world_with(config: SimConfig) -> World {
         let mut world = World::new();

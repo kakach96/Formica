@@ -16,12 +16,22 @@
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use formica_core::i18n::{lang_choices, Lang, Strings};
 use formica_core::obstacles::Obstacles;
 use formica_core::prelude::*;
 
 use crate::interact::{InteractionState, PaintMode, UiFocus};
+use crate::lang::UiLang;
 use crate::paint::{colony_colors, PheromoneView};
 use crate::render::SimCommands;
+
+/// Startup hook: register a CJK-capable fallback font so Chinese labels are
+/// readable. Runs once, before the first panel frame.
+pub fn install_panel_font(mut contexts: EguiContexts) -> Result {
+    let ctx = contexts.ctx_mut()?;
+    crate::lang::install_cjk_fallback(ctx);
+    Ok(())
+}
 
 /// Installs the egui control panel.
 pub struct FormicaUiPlugin;
@@ -55,27 +65,27 @@ impl Preset {
         Preset::Contest,
     ];
 
-    fn label(self) -> &'static str {
+    fn label(self, s: &Strings) -> &'static str {
         match self {
-            Preset::Brief => "Brief defaults",
-            Preset::NoPheromone => "No pheromone",
-            Preset::Volatile => "Volatile trail",
-            Preset::Persistent => "Persistent trail",
-            Preset::Wall => "U-shaped wall",
-            Preset::Hunted => "Under predation",
-            Preset::Contest => "Two colonies",
+            Preset::Brief => s.preset_brief,
+            Preset::NoPheromone => s.preset_no_pheromone,
+            Preset::Volatile => s.preset_volatile,
+            Preset::Persistent => s.preset_persistent,
+            Preset::Wall => s.preset_wall,
+            Preset::Hunted => s.preset_hunted,
+            Preset::Contest => s.preset_contest,
         }
     }
 
-    fn hint(self) -> &'static str {
+    fn hint(self, s: &Strings) -> &'static str {
         match self {
-            Preset::Brief => "evaporation 0.10, the parameters from the project brief",
-            Preset::NoPheromone => "deposit 0, turn-gain 0 - pure random walk, for comparison",
-            Preset::Volatile => "evaporation 0.30 - trails die faster than they form",
-            Preset::Persistent => "evaporation 0.01 - trails barely decay, paths ossify",
-            Preset::Wall => "food walled into a U - the straight path is blocked",
-            Preset::Hunted => "predators on the map: time and cargo are lost, lives are not",
-            Preset::Contest => "two colonies, private trails, one shared food supply",
+            Preset::Brief => s.preset_brief_hint,
+            Preset::NoPheromone => s.preset_no_pheromone_hint,
+            Preset::Volatile => s.preset_volatile_hint,
+            Preset::Persistent => s.preset_persistent_hint,
+            Preset::Wall => s.preset_wall_hint,
+            Preset::Hunted => s.preset_hunted_hint,
+            Preset::Contest => s.preset_contest_hint,
         }
     }
 
@@ -143,6 +153,7 @@ struct PanelState<'w> {
     obstacles: Res<'w, Obstacles>,
     stats: Res<'w, SimStats>,
     time: Res<'w, Time>,
+    ui_lang: ResMut<'w, UiLang>,
 }
 
 fn control_panel(
@@ -162,7 +173,10 @@ fn control_panel(
         obstacles,
         stats,
         time,
+        mut ui_lang,
     } = state;
+    // One table per frame; every widget below reads fields from it.
+    let s = ui_lang.strings();
 
     let ctx = contexts.ctx_mut()?;
     // `egui_wants_pointer_input` (not the old `wants_pointer_input`): true when
@@ -199,25 +213,40 @@ fn control_panel(
         .show(&mut root, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.heading("Formica");
-                ui.small("ant colony foraging - simple rules, emergent trails");
+                ui.small(s.app_subtitle);
+
+                // Live language switch: the table is re-read every frame, so
+                // this takes effect on the next repaint with no restart.
+                egui::ComboBox::from_id_salt("formica_lang")
+                    .selected_text(ui_lang.lang.code())
+                    .show_ui(ui, |ui| {
+                        for (code, name) in lang_choices(ui_lang.lang) {
+                            let value = Lang::parse(code).unwrap_or_default();
+                            ui.selectable_value(
+                                &mut ui_lang.lang,
+                                value,
+                                format!("{name} ({code})"),
+                            );
+                        }
+                    });
                 ui.separator();
 
-                run_stats(ui, &config, &stats, *smoothed_fps);
+                run_stats(ui, &config, &stats, *smoothed_fps, s);
                 ui.separator();
 
-                ui.label(egui::RichText::new("Delivery curve").strong());
-                delivery_curve(ui, &stats.samples, 90.0, config.colonies());
+                ui.label(egui::RichText::new(s.curve_title).strong());
+                delivery_curve(ui, &stats.samples, 90.0, config.colonies(), s);
                 ui.separator();
 
-                run_controls(ui, &mut config, &mut commands);
+                run_controls(ui, &mut config, &mut commands, s);
                 ui.separator();
 
-                ui.label(egui::RichText::new("Presets").strong());
+                ui.label(egui::RichText::new(s.presets_section).strong());
                 egui::Grid::new("presets").num_columns(1).show(ui, |ui| {
                     for preset in Preset::ALL {
                         if ui
-                            .button(preset.label())
-                            .on_hover_text(preset.hint())
+                            .button(preset.label(s))
+                            .on_hover_text(preset.hint(s))
                             .clicked()
                         {
                             preset.apply(&mut config);
@@ -231,40 +260,40 @@ fn control_panel(
                 });
                 ui.separator();
 
-                world_controls(ui, &mut config, &mut commands, &mut draft_size);
+                world_controls(ui, &mut config, &mut commands, &mut draft_size, s);
                 ui.separator();
-                interact_controls(ui, &mut interaction);
+                interact_controls(ui, &mut interaction, s);
                 ui.separator();
-                obstacle_controls(ui, &mut config, &obstacles);
+                obstacle_controls(ui, &mut config, &obstacles, s);
                 ui.separator();
-                colony_controls(ui, &mut config);
+                colony_controls(ui, &mut config, s);
                 ui.separator();
-                pheromone_controls(ui, &mut config);
+                pheromone_controls(ui, &mut config, s);
                 ui.separator();
-                ant_controls(ui, &mut config);
+                ant_controls(ui, &mut config, s);
                 ui.separator();
-                crowd_controls(ui, &mut config, &stats);
+                crowd_controls(ui, &mut config, &stats, s);
                 ui.separator();
-                predator_controls(ui, &mut config);
+                predator_controls(ui, &mut config, s);
                 ui.separator();
-                display_controls(ui, &mut view);
+                display_controls(ui, &mut view, s);
             });
         });
 
     Ok(())
 }
 
-fn run_stats(ui: &mut egui::Ui, config: &SimConfig, stats: &SimStats, fps: f32) {
+fn run_stats(ui: &mut egui::Ui, config: &SimConfig, stats: &SimStats, fps: f32, s: &Strings) {
     let colonies = config.colonies();
     egui::Grid::new("formica_stats")
         .num_columns(2)
         .spacing([10.0, 3.0])
         .show(ui, |ui| {
-            ui.label("tick");
+            ui.label(s.tick);
             ui.label(egui::RichText::new(stats.tick.to_string()).monospace());
             ui.end_row();
 
-            ui.label("delivered");
+            ui.label(s.delivered);
             ui.label(
                 egui::RichText::new(format!(
                     "{:.0} / {:.0}  ({:.1}%)",
@@ -283,7 +312,7 @@ fn run_stats(ui: &mut egui::Ui, config: &SimConfig, stats: &SimStats, fps: f32) 
                     } else {
                         0.0
                     };
-                    ui.label(format!("  colony {index}"));
+                    ui.label(format!("  {} {index}", s.colony_row));
                     ui.label(
                         egui::RichText::new(format!(
                             "{:.0}  ({share:.1}%)",
@@ -295,49 +324,45 @@ fn run_stats(ui: &mut egui::Ui, config: &SimConfig, stats: &SimStats, fps: f32) 
                 }
             }
 
-            ui.label("round trips");
+            ui.label(s.round_trips);
             ui.label(egui::RichText::new(stats.deliveries.to_string()).monospace());
             ui.end_row();
 
-            ui.label("ants / colony");
+            ui.label(s.ants_per_colony);
             ui.label(
-                egui::RichText::new(format!(
-                    "{} x {}",
-                    config.ant_count,
-                    config.colonies()
-                ))
-                .monospace(),
+                egui::RichText::new(format!("{} x {}", config.ant_count, config.colonies()))
+                    .monospace(),
             );
             ui.end_row();
 
-            ui.label("searching / returning");
+            ui.label(s.searching_returning);
             ui.label(
                 egui::RichText::new(format!("{} / {}", stats.searching, stats.returning))
                     .monospace(),
             );
             ui.end_row();
 
-            ui.label("food left");
+            ui.label(s.food_left);
             ui.label(egui::RichText::new(format!("{:.0}", stats.food_remaining)).monospace());
             ui.end_row();
 
             if stats.ants_eaten > 0 {
-                ui.label("ants eaten");
+                ui.label(s.ants_eaten);
                 ui.label(egui::RichText::new(stats.ants_eaten.to_string()).monospace());
                 ui.end_row();
             }
 
-            ui.label("first delivery");
+            ui.label(s.first_delivery);
             ui.label(
                 egui::RichText::new(match stats.first_delivery_tick {
-                    Some(t) => format!("tick {t}"),
-                    None => "not yet".to_string(),
+                    Some(t) => format!("{} {t}", s.tick),
+                    None => s.not_yet.to_string(),
                 })
                 .monospace(),
             );
             ui.end_row();
 
-            ui.label("fps");
+            ui.label(s.fps);
             ui.label(egui::RichText::new(format!("{fps:.0}")).monospace());
             ui.end_row();
         });
@@ -352,9 +377,17 @@ type CurveSeries<'a> = (&'a [Sample], fn(&Sample) -> f64, egui::Color32);
 /// feature, and this is thirty lines of painter anyway. With two colonies the
 /// per-colony curves are drawn on top of the total, in the same hues the
 /// pheromone fields use.
-fn delivery_curve(ui: &mut egui::Ui, samples: &[Sample], height: f32, colonies: usize) {
-    let (rect, _response) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
+fn delivery_curve(
+    ui: &mut egui::Ui,
+    samples: &[Sample],
+    height: f32,
+    colonies: usize,
+    s: &Strings,
+) {
+    let (rect, _response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::hover(),
+    );
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 3.0, egui::Color32::from_rgb(16, 18, 24));
 
@@ -362,7 +395,7 @@ fn delivery_curve(ui: &mut egui::Ui, samples: &[Sample], height: f32, colonies: 
         painter.text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
-            "collecting samples...",
+            s.curve_collecting,
             egui::FontId::proportional(12.0),
             egui::Color32::from_gray(120),
         );
@@ -404,8 +437,7 @@ fn delivery_curve(ui: &mut egui::Ui, samples: &[Sample], height: f32, colonies: 
     for i in 0..columns {
         let t = i as f32 / (columns.max(2) - 1) as f32;
         let idx = ((t * (samples.len() - 1) as f32).round() as usize).min(samples.len() - 1);
-        let y =
-            inset.bottom() - (samples[idx].delivered / max_delivered) as f32 * inset.height();
+        let y = inset.bottom() - (samples[idx].delivered / max_delivered) as f32 * inset.height();
         painter.vline(
             inset.left() + i as f32,
             y..=inset.bottom(),
@@ -441,34 +473,35 @@ fn delivery_curve(ui: &mut egui::Ui, samples: &[Sample], height: f32, colonies: 
     painter.text(
         egui::pos2(inset.left() + 4.0, inset.bottom() - 2.0),
         egui::Align2::LEFT_BOTTOM,
-        format!("S-score {:.2}", report.sigmoid_score),
+        format!("{} {:.2}", s.curve_s_score, report.sigmoid_score),
         egui::FontId::monospace(10.0),
         egui::Color32::from_gray(150),
     );
 }
 
-fn run_controls(ui: &mut egui::Ui, config: &mut SimConfig, commands: &mut SimCommands) {
-    ui.label(egui::RichText::new("Run").strong());
+fn run_controls(
+    ui: &mut egui::Ui,
+    config: &mut SimConfig,
+    commands: &mut SimCommands,
+    s: &Strings,
+) {
+    ui.label(egui::RichText::new(s.run_section).strong());
     ui.horizontal(|ui| {
-        ui.checkbox(&mut config.paused, "pause");
+        ui.checkbox(&mut config.paused, s.pause);
         ui.separator();
-        if ui
-            .button("restart")
-            .on_hover_text("fresh food, empty trails, zeroed statistics")
-            .clicked()
-        {
+        if ui.button(s.restart).on_hover_text(s.restart_hint).clicked() {
             commands.restart = true;
         }
         if ui
-            .button("clear trails")
-            .on_hover_text("zero every pheromone field without disturbing the ants")
+            .button(s.clear_trails)
+            .on_hover_text(s.clear_trails_hint)
             .clicked()
         {
             commands.clear_pheromones = true;
         }
     });
-    ui.add(egui::Slider::new(&mut config.ticks_per_frame, 0..=32).text("ticks per frame"))
-        .on_hover_text("fast-forward: the tick schedule is simply run more often per frame");
+    ui.add(egui::Slider::new(&mut config.ticks_per_frame, 0..=32).text(s.ticks_per_frame))
+        .on_hover_text(s.ticks_per_frame_hint);
 }
 
 fn world_controls(
@@ -476,29 +509,34 @@ fn world_controls(
     config: &mut SimConfig,
     commands: &mut SimCommands,
     draft: &mut Option<(usize, usize)>,
+    s: &Strings,
 ) {
     let current = draft.unwrap_or((config.width, config.height));
     let (mut width, mut height) = current;
     let mut dirty = false;
 
-    egui::CollapsingHeader::new("World & food")
+    egui::CollapsingHeader::new(s.world_section)
         .default_open(false)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label("size");
+                ui.label(s.size);
                 dirty |= ui
                     .add(egui::DragValue::new(&mut width).range(32..=1024).speed(4.0))
                     .changed();
                 ui.label("x");
                 dirty |= ui
-                    .add(egui::DragValue::new(&mut height).range(32..=1024).speed(4.0))
+                    .add(
+                        egui::DragValue::new(&mut height)
+                            .range(32..=1024)
+                            .speed(4.0),
+                    )
                     .changed();
             });
             // Keep it square unless the user really wants otherwise: the camera
             // fits the map to the shorter axis, so a very long map wastes space.
             if ui
-                .button("make square")
-                .on_hover_text("set both to the larger of the two")
+                .button(s.make_square)
+                .on_hover_text(s.make_square_hint)
                 .clicked()
             {
                 let side = width.max(height);
@@ -510,11 +548,8 @@ fn world_controls(
             let pending = (width, height) != (config.width, config.height);
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(pending, egui::Button::new("apply size"))
-                    .on_hover_text(
-                        "reallocates the pheromone texture and rebuilds the scene, \
-                         which discards the current run",
-                    )
+                    .add_enabled(pending, egui::Button::new(s.apply_size))
+                    .on_hover_text(s.apply_size_hint)
                     .clicked()
                 {
                     config.width = width;
@@ -537,18 +572,21 @@ fn world_controls(
             ui.separator();
             let mut piles = config.food_pile_count as u32;
             if ui
-                .add(egui::Slider::new(&mut piles, 1..=8).text("starting piles"))
-                .on_hover_text("applied on restart; click the map to add more")
+                .add(egui::Slider::new(&mut piles, 1..=8).text(s.starting_piles))
+                .on_hover_text(s.starting_piles_hint)
                 .changed()
             {
                 config.food_pile_count = piles as usize;
             }
-            ui.add(egui::Slider::new(&mut config.food_per_pile, 0.0..=20_000.0).text("food per pile"));
-            ui.add(egui::Slider::new(&mut config.food_pile_radius, 2.0..=24.0).text("pile radius"));
+            ui.add(
+                egui::Slider::new(&mut config.food_per_pile, 0.0..=20_000.0).text(s.food_per_pile),
+            );
+            ui.add(egui::Slider::new(&mut config.food_pile_radius, 2.0..=24.0).text(s.pile_radius));
             ui.label(
                 egui::RichText::new(format!(
-                    "{:.0} units on the map ({:.1}% recovered)",
+                    "{:.0} {} ({:.1}% recovered)",
                     config.food_per_pile * config.food_pile_count as f32,
+                    s.units_on_map,
                     0.0
                 ))
                 .small()
@@ -557,155 +595,165 @@ fn world_controls(
         });
 }
 
-fn interact_controls(ui: &mut egui::Ui, interaction: &mut InteractionState) {
-    egui::CollapsingHeader::new("Mouse")
+fn interact_controls(ui: &mut egui::Ui, interaction: &mut InteractionState, s: &Strings) {
+    egui::CollapsingHeader::new(s.mouse_section)
         .default_open(true)
         .show(ui, |ui| {
-            ui.checkbox(&mut interaction.enabled, "enable map editing");
+            ui.checkbox(&mut interaction.enabled, s.enable_map_editing);
             ui.horizontal_wrapped(|ui| {
                 for mode in PaintMode::ALL {
-                    ui.selectable_value(&mut interaction.mode, mode, mode.label());
+                    ui.selectable_value(&mut interaction.mode, mode, mode.label_for(s));
                 }
             });
-            ui.add(egui::Slider::new(&mut interaction.brush_radius, 2.0..=24.0).text("brush radius"));
+            ui.add(
+                egui::Slider::new(&mut interaction.brush_radius, 2.0..=24.0).text(s.brush_radius),
+            );
             if interaction.mode == PaintMode::Food {
                 ui.add(
                     egui::Slider::new(&mut interaction.pile_amount, 100.0..=10_000.0)
-                        .text("food per pile"),
+                        .text(s.food_per_pile),
                 );
             }
-            ui.small("left click applies the mode; right click erases food and wall");
+            ui.small(s.mouse_help);
         });
 }
 
-fn obstacle_controls(ui: &mut egui::Ui, config: &mut SimConfig, obstacles: &Obstacles) {
-    egui::CollapsingHeader::new("Obstacles")
+fn obstacle_controls(
+    ui: &mut egui::Ui,
+    config: &mut SimConfig,
+    obstacles: &Obstacles,
+    s: &Strings,
+) {
+    egui::CollapsingHeader::new(s.obstacles_section)
         .default_open(false)
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 let is_none = matches!(config.obstacle_preset, ObstaclePreset::None);
-                if ui.selectable_label(is_none, "open field").clicked() {
+                if ui.selectable_label(is_none, s.obstacle_none).clicked() {
                     config.obstacle_preset = ObstaclePreset::None;
                 }
                 let is_wall = matches!(config.obstacle_preset, ObstaclePreset::UWall { .. });
-                if ui.selectable_label(is_wall, "U-shaped wall").clicked() && !is_wall {
+                if ui.selectable_label(is_wall, s.obstacle_u_wall).clicked() && !is_wall {
                     config.obstacle_preset = ObstaclePreset::UWall {
                         arm: config.food_pile_radius + 8.0,
                         gap: config.food_pile_radius * 2.0 + 4.0,
                         thickness: 3.0,
                     };
                 }
-                let is_blocks = matches!(config.obstacle_preset, ObstaclePreset::RandomBlocks { .. });
-                if ui.selectable_label(is_blocks, "scattered blocks").clicked() && !is_blocks {
+                let is_blocks =
+                    matches!(config.obstacle_preset, ObstaclePreset::RandomBlocks { .. });
+                if ui.selectable_label(is_blocks, s.obstacle_blocks).clicked() && !is_blocks {
                     config.obstacle_preset = ObstaclePreset::RandomBlocks { density: 0.15 };
                 }
             });
 
             match &mut config.obstacle_preset {
                 ObstaclePreset::None => {
-                    ui.small("an open field: the baseline everything else is compared against");
+                    ui.small(s.obstacle_none_hint);
                 }
-                ObstaclePreset::UWall { arm, gap, thickness } => {
-                    ui.add(egui::Slider::new(arm, 4.0..=40.0).text("arm length"));
-                    ui.add(egui::Slider::new(gap, 4.0..=40.0).text("clear width"));
-                    ui.add(egui::Slider::new(thickness, 1.0..=8.0).text("thickness"));
-                    ui.small("wraps the first pile, closed side facing the colony");
+                ObstaclePreset::UWall {
+                    arm,
+                    gap,
+                    thickness,
+                } => {
+                    ui.add(egui::Slider::new(arm, 4.0..=40.0).text(s.arm_length));
+                    ui.add(egui::Slider::new(gap, 4.0..=40.0).text(s.clear_width));
+                    ui.add(egui::Slider::new(thickness, 1.0..=8.0).text(s.thickness));
+                    ui.small(s.obstacle_u_wall_hint);
                 }
                 ObstaclePreset::RandomBlocks { density } => {
-                    ui.add(egui::Slider::new(density, 0.01..=0.4).text("wall density"));
+                    ui.add(egui::Slider::new(density, 0.01..=0.4).text(s.wall_density));
                 }
             }
 
             ui.label(
                 egui::RichText::new(format!(
-                    "{} wall cells ({:.1}% of the map)",
+                    "{} {} ({:.1}% of the map)",
                     obstacles.count(),
+                    s.wall_cells,
                     obstacles.coverage() * 100.0
                 ))
                 .small()
                 .color(egui::Color32::from_gray(140)),
             );
-            ui.small("draw your own with the Mouse section above");
+            ui.small(s.draw_your_own);
         });
 }
 
-fn colony_controls(ui: &mut egui::Ui, config: &mut SimConfig) {
-    egui::CollapsingHeader::new("Colonies")
+fn colony_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
+    egui::CollapsingHeader::new(s.colonies_section)
         .default_open(false)
         .show(ui, |ui| {
             let mut colonies = config.colony_count as u32;
             if ui
-                .add(egui::Slider::new(&mut colonies, 1..=2).text("competing colonies"))
-                .on_hover_text(
-                    "each colony has private pheromone fields and its own nest, but \
-                     they share the same finite food",
-                )
+                .add(egui::Slider::new(&mut colonies, 1..=2).text(s.competing_colonies))
+                .on_hover_text(s.competing_colonies_hint)
                 .changed()
             {
                 config.colony_count = colonies as usize;
             }
             if config.colonies() > 1 {
-                ui.add(egui::Slider::new(&mut config.nest_orbit, 20.0..=140.0).text("nest spacing"));
-                ui.small(
-                    "colony 0 trails are green/violet, colony 1 are amber/cyan. \
-                     Neither can smell the other.",
+                ui.add(
+                    egui::Slider::new(&mut config.nest_orbit, 20.0..=140.0).text(s.nest_spacing),
                 );
+                ui.small(s.colony_colors_note);
             }
         });
 }
 
-fn pheromone_controls(ui: &mut egui::Ui, config: &mut SimConfig) {
-    ui.label(egui::RichText::new("Pheromones").strong());
+fn pheromone_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
+    ui.label(egui::RichText::new(s.pheromones_section).strong());
     ui.add(
         egui::Slider::new(&mut config.evaporation_rate, 0.001..=0.5)
             .logarithmic(true)
-            .text("evaporation /tick"),
+            .text(s.evaporation),
     )
-    .on_hover_text("c *= (1 - rate) every tick");
-    ui.add(egui::Slider::new(&mut config.deposit_amount, 0.0..=5.0).text("deposit strength"));
-    ui.add(egui::Slider::new(&mut config.deposit_radius, 0..=3).text("deposit kernel radius"));
-    ui.add(egui::Slider::new(&mut config.max_pheromone, 1.0..=100.0).text("cell ceiling"));
+    .on_hover_text(s.evaporation_hint);
+    ui.add(egui::Slider::new(&mut config.deposit_amount, 0.0..=5.0).text(s.deposit_strength));
+    ui.add(egui::Slider::new(&mut config.deposit_radius, 0..=3).text(s.deposit_kernel_radius));
+    ui.add(egui::Slider::new(&mut config.max_pheromone, 1.0..=100.0).text(s.cell_ceiling));
 }
 
-fn ant_controls(ui: &mut egui::Ui, config: &mut SimConfig) {
-    ui.label(egui::RichText::new("Ants").strong());
+fn ant_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
+    ui.label(egui::RichText::new(s.ants_section).strong());
 
     let mut ant_count = config.ant_count as u32;
     if ui
-        .add(egui::Slider::new(&mut ant_count, 1..=2_000).text("ants per colony"))
-        .on_hover_text("applied live: ants are spawned at, or removed from, their nest")
+        .add(egui::Slider::new(&mut ant_count, 1..=2_000).text(s.ants_per_colony_slider))
+        .on_hover_text(s.ants_per_colony_hint)
         .changed()
     {
         config.ant_count = ant_count as usize;
     }
 
-    ui.add(egui::Slider::new(&mut config.speed, 0.5..=6.0).text("speed (cells/tick)"));
-    ui.add(egui::Slider::new(&mut config.sensor_distance, 0.0..=12.0).text("perception radius"))
-        .on_hover_text("how far ahead the antennae sample, in cells");
-    ui.add(egui::Slider::new(&mut config.sensor_angle, 0.0..=1.5).text("antenna spread (rad)"));
-    ui.add(egui::Slider::new(&mut config.sensor_box_radius, 0..=3).text("antenna box radius"));
-    ui.add(egui::Slider::new(&mut config.random_walk_strength, 0.0..=1.5).text("random walk (rad)"));
-    ui.add(egui::Slider::new(&mut config.sensor_turn_gain, 0.0..=1.5).text("trail turn gain"))
-        .on_hover_text("0 disables trail following entirely");
-    ui.add(egui::Slider::new(&mut config.home_pheromone_weight, 0.0..=1.0).text("home-trail guidance"))
-        .on_hover_text("0 = returning ants head straight for the nest (brief behaviour)");
-    ui.add(egui::Slider::new(&mut config.individuality, 0.0..=1.5).text("individuality"))
-        .on_hover_text(
-            "spread of per-ant speed and wander. 0 makes every ant identical, which is \
-             what makes the colony expand as a hollow ring",
-        );
+    ui.add(egui::Slider::new(&mut config.speed, 0.5..=6.0).text(s.speed));
+    ui.add(egui::Slider::new(&mut config.sensor_distance, 0.0..=12.0).text(s.perception_radius))
+        .on_hover_text(s.perception_radius_hint);
+    ui.add(egui::Slider::new(&mut config.sensor_angle, 0.0..=1.5).text(s.antenna_spread));
+    ui.add(egui::Slider::new(&mut config.sensor_box_radius, 0..=3).text(s.antenna_box_radius));
+    ui.add(egui::Slider::new(&mut config.random_walk_strength, 0.0..=1.5).text(s.random_walk));
+    ui.add(egui::Slider::new(&mut config.sensor_turn_gain, 0.0..=1.5).text(s.trail_turn_gain))
+        .on_hover_text(s.trail_turn_gain_hint);
+    ui.add(
+        egui::Slider::new(&mut config.home_pheromone_weight, 0.0..=1.0).text(s.home_trail_guidance),
+    )
+    .on_hover_text(s.home_trail_guidance_hint);
+    ui.add(egui::Slider::new(&mut config.individuality, 0.0..=1.5).text(s.individuality))
+        .on_hover_text(s.individuality_hint);
 }
 
 /// Crowding: the knob that stops a bottleneck collapsing the colony onto a
 /// point, plus the live readout that says whether it is happening.
-fn crowd_controls(ui: &mut egui::Ui, config: &mut SimConfig, stats: &SimStats) {
-    egui::CollapsingHeader::new("Crowding")
+fn crowd_controls(ui: &mut egui::Ui, config: &mut SimConfig, stats: &SimStats, s: &Strings) {
+    egui::CollapsingHeader::new(s.crowding_section)
         .default_open(false)
         .show(ui, |ui| {
-            ui.add(egui::Slider::new(&mut config.crowd_threshold, 4.0..=120.0).text("jam threshold"))
-                .on_hover_text("ants sharing one 4x4-cell bin before relief starts");
-            ui.add(egui::Slider::new(&mut config.crowd_relief, 0.0..=2.0).text("relief step (cells)"))
-                .on_hover_text("0 disables crowding relief entirely");
+            ui.add(
+                egui::Slider::new(&mut config.crowd_threshold, 4.0..=120.0).text(s.jam_threshold),
+            )
+            .on_hover_text(s.jam_threshold_hint);
+            ui.add(egui::Slider::new(&mut config.crowd_relief, 0.0..=2.0).text(s.relief_step))
+                .on_hover_text(s.relief_step_hint);
 
             // Live concentration: if this climbs into the hundreds while food
             // is walled off, the colony is piling onto one spot.
@@ -714,56 +762,60 @@ fn crowd_controls(ui: &mut egui::Ui, config: &mut SimConfig, stats: &SimStats) {
             } else {
                 0.0
             };
-            ui.small(format!(
-                "busiest 4x4 bin: {} ants  (peak {}), over {} bins\n\
-                 an evenly spread colony would hold about {:.1} per bin",
-                stats.crowd_max_bin, stats.crowd_peak_bin, stats.crowd_occupied, uniform
-            ));
+            ui.small(
+                s.busiest_bin_fmt
+                    .replace("{max}", &stats.crowd_max_bin.to_string())
+                    .replace("{peak}", &stats.crowd_peak_bin.to_string())
+                    .replace("{occupied}", &stats.crowd_occupied.to_string())
+                    .replace("{uniform:.1}", &format!("{uniform:.1}")),
+            );
         });
 }
 
-fn predator_controls(ui: &mut egui::Ui, config: &mut SimConfig) {
-    egui::CollapsingHeader::new("Predators")
+fn predator_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
+    egui::CollapsingHeader::new(s.predators_section)
         .default_open(false)
         .show(ui, |ui| {
             let mut count = config.predator_count as u32;
             if ui
-                .add(egui::Slider::new(&mut count, 0..=40).text("predators"))
-                .on_hover_text("0 turns predation off entirely")
+                .add(egui::Slider::new(&mut count, 0..=40).text(s.predators))
+                .on_hover_text(s.predators_hint)
                 .changed()
             {
                 config.predator_count = count as usize;
             }
             ui.add_enabled_ui(config.predator_count > 0, |ui| {
-                ui.add(egui::Slider::new(&mut config.predator_speed, 0.0..=4.0).text("speed"));
-                ui.add(egui::Slider::new(&mut config.predator_sense, 0.0..=120.0).text("sight radius"));
-                ui.add(egui::Slider::new(&mut config.predator_catch_radius, 0.5..=12.0).text("catch radius"));
-                ui.add(egui::Slider::new(&mut config.predator_wander, 0.0..=1.5).text("wander"));
-                ui.small(
-                    "eaten ants are replaced at their nest, so predation costs time \
-                     and cargo rather than lives. Nests are a refuge.",
+                ui.add(egui::Slider::new(&mut config.predator_speed, 0.0..=4.0).text(s.speed));
+                ui.add(
+                    egui::Slider::new(&mut config.predator_sense, 0.0..=120.0).text(s.sight_radius),
                 );
+                ui.add(
+                    egui::Slider::new(&mut config.predator_catch_radius, 0.5..=12.0)
+                        .text(s.catch_radius),
+                );
+                ui.add(egui::Slider::new(&mut config.predator_wander, 0.0..=1.5).text(s.wander));
+                ui.small(s.predator_note);
             });
         });
 }
 
-fn display_controls(ui: &mut egui::Ui, view: &mut PheromoneView) {
-    ui.label(egui::RichText::new("Display").strong());
+fn display_controls(ui: &mut egui::Ui, view: &mut PheromoneView, s: &Strings) {
+    ui.label(egui::RichText::new(s.display_section).strong());
     ui.add(
         egui::Slider::new(&mut view.food_gain, 0.02..=2.0)
             .logarithmic(true)
-            .text("food trail gain"),
+            .text(s.food_trail_gain),
     );
     ui.add(
         egui::Slider::new(&mut view.home_gain, 0.0..=1.0)
             .logarithmic(true)
-            .text("home trail gain"),
+            .text(s.home_trail_gain),
     )
-    .on_hover_text("drop this to 0 to isolate the food trail, and vice versa");
+    .on_hover_text(s.gain_hint);
     ui.horizontal(|ui| {
-        ui.checkbox(&mut view.show_food, "food trail");
-        ui.checkbox(&mut view.show_home, "home trail");
+        ui.checkbox(&mut view.show_food, s.food_trail);
+        ui.checkbox(&mut view.show_home, s.home_trail);
     });
-    ui.small("colony 0: green / violet    colony 1: amber / cyan");
+    ui.small(s.color_legend);
     ui.small("ants: white / orange    predators: red    walls: grey");
 }

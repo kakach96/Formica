@@ -41,6 +41,7 @@ pub mod ant;
 pub mod config;
 pub mod crowd;
 pub mod grid;
+pub mod i18n;
 pub mod metrics;
 pub mod motion;
 pub mod obstacles;
@@ -58,11 +59,11 @@ pub mod prelude {
     };
     pub use crate::config::{ObstaclePreset, SimConfig};
     pub use crate::crowd::{CrowdGrid, CROWD_BIN};
-    pub use crate::grid::{
-        Deposit, Pheromone, PheromoneGrid, MAX_COLONIES, PHEROMONE_EPSILON,
-    };
+    pub use crate::grid::{Deposit, Pheromone, PheromoneGrid, MAX_COLONIES, PHEROMONE_EPSILON};
+    pub use crate::i18n::{lang_choices, Lang, Strings, EN, ZH};
     pub use crate::metrics::{
-        analyze, analyze_series, ascii_curve, ascii_series, sparkline, CurveReport, Sample, SimStats,
+        analyze, analyze_series, ascii_curve, ascii_series, sparkline, CurveReport, Sample,
+        SimStats,
     };
     pub use crate::motion::{step, MotionField, StepResult};
     pub use crate::obstacles::Obstacles;

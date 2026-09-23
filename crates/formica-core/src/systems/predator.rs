@@ -99,7 +99,14 @@ pub fn move_predators(
             }
         }
 
-        let result = motion::step(pos.x, pos.y, heading.angle, config.predator_speed, field, &mut rng);
+        let result = motion::step(
+            pos.x,
+            pos.y,
+            heading.angle,
+            config.predator_speed,
+            field,
+            &mut rng,
+        );
         pos.x = result.x;
         pos.y = result.y;
         heading.angle = result.angle;
@@ -202,7 +209,12 @@ mod tests {
             PredatorHeading { angle: 0.0 },
             PredatorAlert(false),
         ));
-        world.spawn((AntMarker, AntColony(0), AntPos { x: 10.0, y: 40.0 }, AntState::Searching));
+        world.spawn((
+            AntMarker,
+            AntColony(0),
+            AntPos { x: 10.0, y: 40.0 },
+            AntState::Searching,
+        ));
 
         world.run_system_once(move_predators).unwrap();
 
@@ -231,12 +243,20 @@ mod tests {
             PredatorHeading { angle: 0.0 },
             PredatorAlert(false),
         ));
-        world.spawn((AntMarker, AntColony(0), AntPos { x: 10.0, y: 90.0 }, AntState::Searching));
+        world.spawn((
+            AntMarker,
+            AntColony(0),
+            AntPos { x: 10.0, y: 90.0 },
+            AntState::Searching,
+        ));
 
         world.run_system_once(move_predators).unwrap();
 
         let mut q = world.query::<&PredatorAlert>();
-        assert!(!q.single(&world).unwrap().0, "sensed an ant that was too far");
+        assert!(
+            !q.single(&world).unwrap().0,
+            "sensed an ant that was too far"
+        );
     }
 
     #[test]
@@ -254,9 +274,24 @@ mod tests {
             PredatorAlert(true),
         ));
         // Two ants inside the catch radius, one well outside.
-        world.spawn((AntMarker, AntColony(0), AntPos { x: 101.0, y: 100.0 }, AntState::Searching));
-        world.spawn((AntMarker, AntColony(0), AntPos { x: 100.0, y: 102.0 }, AntState::Searching));
-        world.spawn((AntMarker, AntColony(0), AntPos { x: 150.0, y: 150.0 }, AntState::Searching));
+        world.spawn((
+            AntMarker,
+            AntColony(0),
+            AntPos { x: 101.0, y: 100.0 },
+            AntState::Searching,
+        ));
+        world.spawn((
+            AntMarker,
+            AntColony(0),
+            AntPos { x: 100.0, y: 102.0 },
+            AntState::Searching,
+        ));
+        world.spawn((
+            AntMarker,
+            AntColony(0),
+            AntPos { x: 150.0, y: 150.0 },
+            AntState::Searching,
+        ));
 
         world.run_system_once(predators_catch_ants).unwrap();
 
@@ -278,21 +313,31 @@ mod tests {
         let nest = *world.resource::<Nests>().get(0);
         world.spawn((
             PredatorMarker,
-            PredatorPos { x: nest.x, y: nest.y },
+            PredatorPos {
+                x: nest.x,
+                y: nest.y,
+            },
             PredatorHeading { angle: 0.0 },
             PredatorAlert(true),
         ));
         world.spawn((
             AntMarker,
             AntColony(0),
-            AntPos { x: nest.x, y: nest.y },
+            AntPos {
+                x: nest.x,
+                y: nest.y,
+            },
             AntState::Searching,
         ));
 
         world.run_system_once(predators_catch_ants).unwrap();
 
         let mut q = world.query::<&AntMarker>();
-        assert_eq!(q.iter(&world).count(), 1, "an ant was eaten inside its nest");
+        assert_eq!(
+            q.iter(&world).count(),
+            1,
+            "an ant was eaten inside its nest"
+        );
         assert_eq!(world.resource::<SimStats>().ants_eaten, 0);
     }
 
@@ -303,7 +348,12 @@ mod tests {
             predator_catch_radius: 100.0,
             ..Default::default()
         });
-        world.spawn((AntMarker, AntColony(0), AntPos { x: 5.0, y: 5.0 }, AntState::Searching));
+        world.spawn((
+            AntMarker,
+            AntColony(0),
+            AntPos { x: 5.0, y: 5.0 },
+            AntState::Searching,
+        ));
         world.run_system_once(predators_catch_ants).unwrap();
         let mut q = world.query::<&AntMarker>();
         assert_eq!(q.iter(&world).count(), 1);

@@ -33,6 +33,7 @@
 //! map size, which has to reallocate the pheromone texture.
 
 mod interact;
+mod lang;
 mod paint;
 mod render;
 mod ui;
@@ -44,6 +45,7 @@ use formica_core::obstacles::Obstacles;
 use formica_core::prelude::*;
 
 use interact::FormicaInteractPlugin;
+use lang::UiLang;
 use render::{FormicaRenderPlugin, SimCommands};
 
 fn main() {
@@ -71,10 +73,19 @@ fn main() {
         )
         .add_plugins(EguiPlugin::default())
         .add_plugins(SimPlugin::new(config))
+        .init_resource::<UiLang>()
         .add_plugins(FormicaRenderPlugin)
         .add_plugins(FormicaInteractPlugin)
         .add_plugins(ui::FormicaUiPlugin)
-        .add_systems(Startup, (arm_script, configure_view_from_env, seed_obstacles))
+        .add_systems(
+            Startup,
+            (
+                arm_script,
+                configure_view_from_env,
+                seed_obstacles,
+                ui::install_panel_font,
+            ),
+        )
         .add_systems(
             Update,
             (
@@ -230,7 +241,12 @@ fn seed_obstacles(
     food: Res<FoodField>,
     mut obstacles: ResMut<Obstacles>,
 ) {
-    obstacles.apply_preset(config.obstacle_preset, &config, &nests.centers(), &food.piles);
+    obstacles.apply_preset(
+        config.obstacle_preset,
+        &config,
+        &nests.centers(),
+        &food.piles,
+    );
 }
 
 fn run_script(
@@ -286,9 +302,12 @@ fn apply_sim_commands(world: &mut World) {
         let config = world.resource::<SimConfig>().clone();
         let centers = world.resource::<Nests>().centers();
         let piles = world.resource::<FoodField>().piles.clone();
-        world
-            .resource_mut::<Obstacles>()
-            .apply_preset(config.obstacle_preset, &config, &centers, &piles);
+        world.resource_mut::<Obstacles>().apply_preset(
+            config.obstacle_preset,
+            &config,
+            &centers,
+            &piles,
+        );
         info!("world restarted");
     }
 }

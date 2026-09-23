@@ -30,14 +30,20 @@ fn radial_positions(app: &mut bevy_ecs::world::World, nest: (f32, f32)) -> Vec<f
 /// holds about a fifth of them.
 fn outer_fifth(distances: &[f32]) -> f64 {
     let r_max = distances.last().copied().unwrap_or(1.0).max(1.0) as f64;
-    let outer = distances.iter().filter(|d| **d as f64 >= r_max * 0.8).count();
+    let outer = distances
+        .iter()
+        .filter(|d| **d as f64 >= r_max * 0.8)
+        .count();
     outer as f64 / distances.len().max(1) as f64
 }
 
 /// Fraction of the colony inside 40% of its own radius.
 fn inner_two_fifths(distances: &[f32]) -> f64 {
     let r_max = distances.last().copied().unwrap_or(1.0).max(1.0) as f64;
-    let inner = distances.iter().filter(|d| **d as f64 <= r_max * 0.4).count();
+    let inner = distances
+        .iter()
+        .filter(|d| **d as f64 <= r_max * 0.4)
+        .count();
     inner as f64 / distances.len().max(1) as f64
 }
 

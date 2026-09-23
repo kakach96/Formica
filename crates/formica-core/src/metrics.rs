@@ -245,18 +245,27 @@ pub struct CurveReport {
 }
 
 impl CurveReport {
-    /// Human-readable verdict on the S-shape criterion.
+    /// Human-readable verdict on the S-shape criterion (English).
+    ///
+    /// Kept as the default because the headless runner prints English unless
+    /// asked otherwise; see [`CurveReport::verdict_for`] for the localized
+    /// version.
     pub fn verdict(&self) -> &'static str {
+        self.verdict_for(&crate::i18n::EN)
+    }
+
+    /// [`CurveReport::verdict`] in the language of the given string table.
+    pub fn verdict_for(&self, s: &crate::i18n::Strings) -> &'static str {
         if self.total <= 0.0 {
-            "NO FORAGING - the colony never delivered any food"
+            s.verdict_none
         } else if self.sigmoid_score >= 2.0 {
-            "STRONG S-CURVE - clear lag, steep growth phase, plateau"
+            s.verdict_strong
         } else if self.sigmoid_score >= 1.5 {
-            "S-CURVE - growth clearly accelerates then flattens"
+            s.verdict_s
         } else if self.sigmoid_score >= 1.15 {
-            "WEAK S - some acceleration, mostly steady accumulation"
+            s.verdict_weak
         } else {
-            "LINEAR - constant rate, no positive feedback visible"
+            s.verdict_linear
         }
     }
 }
@@ -369,14 +378,10 @@ pub fn ascii_series(
     let width = width.max(20);
     let height = height.max(4);
     if samples.is_empty() {
-        return "(no samples recorded)\n".to_string();
+        return crate::i18n::EN.chart_no_samples.to_string();
     }
 
-    let max_y = samples
-        .iter()
-        .map(&pick)
-        .fold(0.0f64, f64::max)
-        .max(1.0);
+    let max_y = samples.iter().map(&pick).fold(0.0f64, f64::max).max(1.0);
     let last_tick = samples.last().map(|s| s.tick).unwrap_or(0);
 
     // Resample the (possibly much longer) sample list onto `width` columns.
@@ -429,8 +434,8 @@ pub fn sparkline(values: &[f64], width: usize) -> String {
     let max = values.iter().copied().fold(0.0f64, f64::max).max(1e-9);
     (0..width)
         .map(|i| {
-            let idx = (i as f64 / (width.max(2) - 1) as f64 * (values.len() - 1) as f64).round()
-                as usize;
+            let idx =
+                (i as f64 / (width.max(2) - 1) as f64 * (values.len() - 1) as f64).round() as usize;
             let v = values[idx.min(values.len() - 1)] / max;
             RAMP[((v.clamp(0.0, 1.0)) * (RAMP.len() - 1) as f64).round() as usize]
         })
@@ -516,7 +521,11 @@ mod tests {
     #[test]
     fn milestones_are_ordered() {
         let report = analyze(&sigmoid(200, 1000.0));
-        let (t10, t50, t90) = (report.t10.unwrap(), report.t50.unwrap(), report.t90.unwrap());
+        let (t10, t50, t90) = (
+            report.t10.unwrap(),
+            report.t50.unwrap(),
+            report.t90.unwrap(),
+        );
         assert!(t10 <= t50 && t50 <= t90, "{t10} {t50} {t90}");
         assert!(report.t_first.unwrap() <= t10);
     }

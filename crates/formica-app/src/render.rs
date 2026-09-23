@@ -262,12 +262,19 @@ fn attach_predator_sprites(
 
 /// Mirror predator state onto the sprite components.
 fn sync_predator_sprites(
-    mut predators: Query<(&PredatorPos, &PredatorAlert, &mut Transform, &mut Sprite), With<PredatorVisual>>,
+    mut predators: Query<
+        (&PredatorPos, &PredatorAlert, &mut Transform, &mut Sprite),
+        With<PredatorVisual>,
+    >,
 ) {
     for (pos, alert, mut transform, mut sprite) in predators.iter_mut() {
         transform.translation.x = pos.x;
         transform.translation.y = pos.y;
-        let wanted = if alert.0 { PREDATOR_HUNTING } else { PREDATOR_CALM };
+        let wanted = if alert.0 {
+            PREDATOR_HUNTING
+        } else {
+            PREDATOR_CALM
+        };
         if sprite.color != wanted {
             sprite.color = wanted;
         }
@@ -381,10 +388,7 @@ fn sync_nest_sprites(
     for (index, nest) in nests.0.iter().enumerate() {
         commands.spawn((
             NestVisual,
-            Sprite::from_color(
-                NEST_COLORS[index.min(1)],
-                Vec2::splat(nest.radius * 2.0),
-            ),
+            Sprite::from_color(NEST_COLORS[index.min(1)], Vec2::splat(nest.radius * 2.0)),
             Transform::from_xyz(nest.x, nest.y, 2.0),
         ));
     }
@@ -410,10 +414,7 @@ fn paint_world(
     let colony_count_changed = *last_colonies != colonies;
     *last_colonies = colonies;
 
-    if !grid.is_changed()
-        && !obstacles.is_changed()
-        && !view.is_changed()
-        && !colony_count_changed
+    if !grid.is_changed() && !obstacles.is_changed() && !view.is_changed() && !colony_count_changed
     {
         return;
     }
@@ -442,10 +443,7 @@ mod tests {
     fn a_full_pile_is_drawn_at_its_nominal_size_and_colour() {
         let (size, color) = food_appearance(6.0, 1.0);
         assert_eq!(size, Vec2::splat(12.0));
-        assert_eq!(
-            color,
-            Color::srgb(FOOD_FULL[0], FOOD_FULL[1], FOOD_FULL[2])
-        );
+        assert_eq!(color, Color::srgb(FOOD_FULL[0], FOOD_FULL[1], FOOD_FULL[2]));
     }
 
     /// The pile must actually get smaller as it is carried away - the whole
@@ -474,7 +472,11 @@ mod tests {
         // The last few percent are the most visible part of the shrink: a 4%
         // pile is under a quarter of the original across.
         let (sliver, _) = food_appearance(6.0, 0.04);
-        assert!(sliver.x < 12.0 * 0.25, "a 4% pile is still {} across", sliver.x);
+        assert!(
+            sliver.x < 12.0 * 0.25,
+            "a 4% pile is still {} across",
+            sliver.x
+        );
     }
 
     /// An exhausted pile must vanish. Leaving a stub behind litters the map,

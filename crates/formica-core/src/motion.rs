@@ -179,7 +179,18 @@ mod tests {
     fn free_flight_advances_by_speed() {
         let obstacles = open(64, 64);
         let mut rng = SimRng::new(1);
-        let r = step(20.0, 20.0, 0.0, 2.0, MotionField { width: 64, height: 64, obstacles: &obstacles }, &mut rng);
+        let r = step(
+            20.0,
+            20.0,
+            0.0,
+            2.0,
+            MotionField {
+                width: 64,
+                height: 64,
+                obstacles: &obstacles,
+            },
+            &mut rng,
+        );
         assert!((r.x - 22.0).abs() < 1e-4);
         assert!((r.y - 20.0).abs() < 1e-4);
         assert!(!r.hit_wall);
@@ -190,12 +201,34 @@ mod tests {
         let obstacles = open(64, 64);
         let mut rng = SimRng::new(1);
 
-        let r = step(1.0, 30.0, std::f32::consts::PI, 2.0, MotionField { width: 64, height: 64, obstacles: &obstacles }, &mut rng);
+        let r = step(
+            1.0,
+            30.0,
+            std::f32::consts::PI,
+            2.0,
+            MotionField {
+                width: 64,
+                height: 64,
+                obstacles: &obstacles,
+            },
+            &mut rng,
+        );
         assert!(r.x >= 0.0);
         assert!(r.angle.cos() > 0.5, "did not turn around: {}", r.angle);
         assert!(r.hit_wall);
 
-        let r = step(30.0, 1.0, -std::f32::consts::FRAC_PI_2, 4.0, MotionField { width: 64, height: 64, obstacles: &obstacles }, &mut rng);
+        let r = step(
+            30.0,
+            1.0,
+            -std::f32::consts::FRAC_PI_2,
+            4.0,
+            MotionField {
+                width: 64,
+                height: 64,
+                obstacles: &obstacles,
+            },
+            &mut rng,
+        );
         assert!(r.y >= 0.0);
         assert!(r.angle.sin() > 0.5, "did not turn around: {}", r.angle);
     }
@@ -206,7 +239,18 @@ mod tests {
         let mut rng = SimRng::new(5);
         for i in 0..128 {
             let angle = i as f32 * 0.7;
-            let r = step(16.0, 16.0, angle, 32.0, MotionField { width: 32, height: 32, obstacles: &obstacles }, &mut rng);
+            let r = step(
+                16.0,
+                16.0,
+                angle,
+                32.0,
+                MotionField {
+                    width: 32,
+                    height: 32,
+                    obstacles: &obstacles,
+                },
+                &mut rng,
+            );
             assert!(
                 (0.0..=31.0).contains(&r.x) && (0.0..=31.0).contains(&r.y),
                 "escaped to ({}, {}) at angle {angle}",
@@ -226,7 +270,18 @@ mod tests {
         let mut rng = SimRng::new(1);
 
         let start = (28.0, 32.0);
-        let r = step(start.0, start.1, 0.0, 2.0, MotionField { width: 64, height: 64, obstacles: &obstacles }, &mut rng);
+        let r = step(
+            start.0,
+            start.1,
+            0.0,
+            2.0,
+            MotionField {
+                width: 64,
+                height: 64,
+                obstacles: &obstacles,
+            },
+            &mut rng,
+        );
         assert!(
             !obstacles.is_blocked_at(r.x, r.y),
             "walked into the wall at ({}, {})",
@@ -249,7 +304,18 @@ mod tests {
         // Heading mostly +x but with a +y component, starting just left of the
         // wall: x is blocked at the target, y is free.
         let angle = 0.2;
-        let r = step(29.0, 20.0, angle, 2.0, MotionField { width: 64, height: 64, obstacles: &obstacles }, &mut rng);
+        let r = step(
+            29.0,
+            20.0,
+            angle,
+            2.0,
+            MotionField {
+                width: 64,
+                height: 64,
+                obstacles: &obstacles,
+            },
+            &mut rng,
+        );
         assert!(!obstacles.is_blocked_at(r.x, r.y));
         assert!(r.y > 20.0, "did not slide along the wall: y = {}", r.y);
     }
@@ -262,7 +328,18 @@ mod tests {
         assert!(obstacles.is_blocked_at(31.0, 30.0));
         let mut rng = SimRng::new(1);
 
-        let r = step(31.0, 30.0, 0.0, 1.0, MotionField { width: 64, height: 64, obstacles: &obstacles }, &mut rng);
+        let r = step(
+            31.0,
+            30.0,
+            0.0,
+            1.0,
+            MotionField {
+                width: 64,
+                height: 64,
+                obstacles: &obstacles,
+            },
+            &mut rng,
+        );
         assert!(
             !obstacles.is_blocked_at(r.x, r.y),
             "entombed at ({}, {})",
@@ -282,7 +359,18 @@ mod tests {
             }
         }
         let mut rng = SimRng::new(1);
-        let r = step(30.0, 30.0, 0.0, 1.0, MotionField { width: 64, height: 64, obstacles: &obstacles }, &mut rng);
+        let r = step(
+            30.0,
+            30.0,
+            0.0,
+            1.0,
+            MotionField {
+                width: 64,
+                height: 64,
+                obstacles: &obstacles,
+            },
+            &mut rng,
+        );
         assert!((0.0..64.0).contains(&r.x) && (0.0..64.0).contains(&r.y));
         assert!(r.hit_wall);
         assert!((-std::f32::consts::PI..std::f32::consts::PI).contains(&r.angle));

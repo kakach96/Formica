@@ -30,14 +30,7 @@ pub fn move_ants(
         // walks at its own fraction of it, so the colony's front smears out
         // instead of arriving as one thin line.
         let scale = vigor.copied().unwrap_or_default().speed;
-        let result = motion::step(
-            pos.x,
-            pos.y,
-            heading.angle,
-            speed * scale,
-            field,
-            &mut rng,
-        );
+        let result = motion::step(pos.x, pos.y, heading.angle, speed * scale, field, &mut rng);
         pos.x = result.x;
         pos.y = result.y;
         heading.angle = result.angle;
@@ -50,7 +43,13 @@ mod tests {
     use bevy_ecs::system::RunSystemOnce;
     use bevy_ecs::world::World;
 
-    fn run(config: SimConfig, setter: impl FnOnce(&mut Obstacles), x: f32, y: f32, angle: f32) -> (AntPos, AntHeading) {
+    fn run(
+        config: SimConfig,
+        setter: impl FnOnce(&mut Obstacles),
+        x: f32,
+        y: f32,
+        angle: f32,
+    ) -> (AntPos, AntHeading) {
         let mut world = World::new();
         let (w, h) = (config.width, config.height);
         world.insert_resource(config);
@@ -59,7 +58,9 @@ mod tests {
         setter(&mut obstacles);
         world.insert_resource(obstacles);
 
-        let entity = world.spawn((AntPos::new(x, y), AntHeading::new(angle))).id();
+        let entity = world
+            .spawn((AntPos::new(x, y), AntHeading::new(angle)))
+            .id();
         world.run_system_once(move_ants).unwrap();
         let mut q = world.query::<(&AntPos, &AntHeading)>();
         let (p, h) = q.get(&world, entity).unwrap();

@@ -449,7 +449,10 @@ mod tests {
         assert_eq!(field.piles.len(), 1);
         assert!((field.initial_total - 250.0).abs() < 1e-3);
         assert!((field.remaining_total - 250.0).abs() < 1e-3);
-        assert!(field.revision > revision, "renderer would miss the new pile");
+        assert!(
+            field.revision > revision,
+            "renderer would miss the new pile"
+        );
         // The mass actually landed in the grid, not just in the books.
         assert!((field.get(16.0, 16.0) - 250.0 / 29.0).abs() < 1.0);
     }
@@ -549,6 +552,9 @@ mod tests {
         assert!((field.remaining_total - 120.0).abs() < 1e-3);
         assert!(field.get(1.0, 1.0) > 0.0, "corner pile did not rasterise");
         assert!(field.get(62.0, 62.0) > 0.0, "corner pile did not rasterise");
-        assert!(field.get(32.5, 10.25) > 0.0, "fractional pile did not rasterise");
+        assert!(
+            field.get(32.5, 10.25) > 0.0,
+            "fractional pile did not rasterise"
+        );
     }
 }

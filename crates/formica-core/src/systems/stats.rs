@@ -129,8 +129,12 @@ mod tests {
     #[test]
     fn pheromone_totals_cover_every_colony() {
         let mut world = world();
-        world.resource_mut::<PheromoneGrid>().set(0, Pheromone::Food, 1, 1, 3.0);
-        world.resource_mut::<PheromoneGrid>().set(1, Pheromone::Food, 2, 2, 4.0);
+        world
+            .resource_mut::<PheromoneGrid>()
+            .set(0, Pheromone::Food, 1, 1, 3.0);
+        world
+            .resource_mut::<PheromoneGrid>()
+            .set(1, Pheromone::Food, 2, 2, 4.0);
         world.spawn(AntState::Searching);
 
         for _ in 0..2 {

@@ -39,15 +39,7 @@ pub fn deposit_pheromones(
             AntState::Returning => Pheromone::Food,
         };
         grid.deposit_kernel(
-            Deposit::new(
-                colony.index(),
-                kind,
-                pos.x,
-                pos.y,
-                amount,
-                radius,
-                cap,
-            ),
+            Deposit::new(colony.index(), kind, pos.x, pos.y, amount, radius, cap),
             |x, y| obstacles.is_blocked(x, y),
         );
     }

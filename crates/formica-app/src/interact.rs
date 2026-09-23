@@ -28,12 +28,25 @@ impl PaintMode {
     /// Every mode, in UI order.
     pub const ALL: [PaintMode; 3] = [PaintMode::Food, PaintMode::Wall, PaintMode::Erase];
 
-    /// Short label for the UI.
+    /// Short label for the UI (English).
+    ///
+    /// Kept alongside [`PaintMode::label_for`] because the metrics-style
+    /// English-only call sites (tests, logs) still use it.
+    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             PaintMode::Food => "place food",
             PaintMode::Wall => "draw wall",
             PaintMode::Erase => "erase",
+        }
+    }
+
+    /// [`PaintMode::label`] in the language of the given string table.
+    pub fn label_for(self, s: &formica_core::i18n::Strings) -> &'static str {
+        match self {
+            PaintMode::Food => s.mode_place_food,
+            PaintMode::Wall => s.mode_draw_wall,
+            PaintMode::Erase => s.mode_erase,
         }
     }
 }
@@ -132,8 +145,7 @@ fn handle_pointer(
         PaintMode::Food => {
             // One pile per click. Piling up dozens while the button is held
             // would make the food supply an accident of frame rate.
-            if buttons.just_pressed(MouseButton::Left)
-                && !obstacles.is_blocked_at(point.x, point.y)
+            if buttons.just_pressed(MouseButton::Left) && !obstacles.is_blocked_at(point.x, point.y)
             {
                 food.add_pile(FoodPile {
                     x: point.x,

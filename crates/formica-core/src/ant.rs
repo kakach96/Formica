@@ -218,7 +218,9 @@ impl AntVigor {
         }
         let boldness = rng.normal();
         Self {
-            wander: (individuality * boldness).exp().clamp(MIN_WANDER, MAX_WANDER),
+            wander: (individuality * boldness)
+                .exp()
+                .clamp(MIN_WANDER, MAX_WANDER),
             speed: (individuality * 0.35 * boldness)
                 .exp()
                 .clamp(MIN_SPEED, MAX_SPEED),
@@ -427,12 +429,16 @@ mod tests {
         let mut exactly_radial = 0;
         let n = 2_000;
         for _ in 0..n {
-            let (_, _, pos, heading, _, _, _, _) = newborn_ant(AntColony(0), &nest, &mut rng, &config);
+            let (_, _, pos, heading, _, _, _, _) =
+                newborn_ant(AntColony(0), &nest, &mut rng, &config);
             let outward = (pos.y - nest.y).atan2(pos.x - nest.x);
             if wrap_angle(heading.angle - outward).abs() < 1.0e-3 {
                 exactly_radial += 1;
             }
         }
-        assert_eq!(exactly_radial, 0, "{exactly_radial}/{n} ants left dead straight");
+        assert_eq!(
+            exactly_radial, 0,
+            "{exactly_radial}/{n} ants left dead straight"
+        );
     }
 }

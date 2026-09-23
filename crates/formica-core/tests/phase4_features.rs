@@ -6,8 +6,8 @@
 //! be. "The ants still deliver food" is weak evidence about a wall; "the ants
 //! deliver less food with the wall, but still find a way round" is evidence.
 
-use formica_core::prelude::*;
 use formica_core::obstacles::Obstacles as ObstacleGrid;
+use formica_core::prelude::*;
 
 fn base_config() -> SimConfig {
     SimConfig {
@@ -400,7 +400,10 @@ fn two_colonies_do_not_share_trails() {
                 stats.food_initial
             );
         }
-        assert!(competing.delivered_total > 0.0, "seed {seed}: nobody foraged");
+        assert!(
+            competing.delivered_total > 0.0,
+            "seed {seed}: nobody foraged"
+        );
 
         let gap = 1.0 - competing.delivered_total / cooperating.delivered_total;
         println!(

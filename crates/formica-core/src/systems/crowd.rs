@@ -54,11 +54,7 @@ const JOSTLE_SPREAD: f32 = 0.9;
 ///
 /// Runs straight after the movement systems, so the field describes where the
 /// colony *is* this tick rather than where it was last tick.
-pub fn tally_crowding(
-    config: Res<SimConfig>,
-    mut grid: ResMut<CrowdGrid>,
-    ants: Query<&AntPos>,
-) {
+pub fn tally_crowding(config: Res<SimConfig>, mut grid: ResMut<CrowdGrid>, ants: Query<&AntPos>) {
     if grid.width_mismatch(config.width, config.height) {
         grid.resize(config.width, config.height);
     }
@@ -204,7 +200,10 @@ mod tests {
         });
         // A realistic busy trail: 60 ants strung out along 120 cells.
         for i in 0..60 {
-            world.spawn((AntPos::new(10.0 + i as f32 * 2.0, 30.0), AntHeading::new(0.0)));
+            world.spawn((
+                AntPos::new(10.0 + i as f32 * 2.0, 30.0),
+                AntHeading::new(0.0),
+            ));
         }
         let before: Vec<(f32, f32)> = {
             let mut q = world.query::<&AntPos>();
