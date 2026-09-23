@@ -51,7 +51,6 @@ use render::{FormicaRenderPlugin, SimCommands};
 fn main() {
     let mut config = SimConfig::default();
     apply_env_overrides(&mut config);
-
     App::new()
         .add_plugins(
             DefaultPlugins
@@ -79,12 +78,7 @@ fn main() {
         .add_plugins(ui::FormicaUiPlugin)
         .add_systems(
             Startup,
-            (
-                arm_script,
-                configure_view_from_env,
-                seed_obstacles,
-                ui::install_panel_font,
-            ),
+            (arm_script, configure_view_from_env, seed_obstacles),
         )
         .add_systems(
             Update,
@@ -174,6 +168,27 @@ fn apply_env_overrides(config: &mut SimConfig) {
                 gap,
                 thickness,
             };
+        }
+    }
+    // A scenario is a base, not an override: it is applied *first* in spirit,
+    // so it runs after the individual value overrides above - a script can
+    // load `labyrinth` and then pin `FORMICA_INDIVIDUALITY` on top.
+    if let Ok(name) = std::env::var("FORMICA_SCENARIO") {
+        let loaded = std::path::Path::new(&name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"))
+            .then(|| std::fs::read_to_string(&name).ok())
+            .flatten()
+            .and_then(|text| formica_core::scenario::Scenario::parse_toml(&text).ok())
+            .or_else(|| formica_core::scenario::Scenario::builtin(&name));
+        match loaded {
+            Some(scenario) => {
+                info!("scenario '{}' loaded from FORMICA_SCENARIO", scenario.name);
+                scenario.apply(config);
+            }
+            None => {
+                warn!("FORMICA_SCENARIO={name} matched no built-in and no file");
+            }
         }
     }
     config.sanitize();
@@ -279,17 +294,29 @@ fn run_script(
 
 /// Service UI requests that need `&mut World`.
 fn apply_sim_commands(world: &mut World) {
-    let (restart, clear_trails) = {
+    let (restart, clear_trails, scenario) = {
         let mut requests = world.resource_mut::<SimCommands>();
         (
             core::mem::take(&mut requests.restart),
             core::mem::take(&mut requests.clear_pheromones),
+            requests.load_scenario.take(),
         )
     };
 
-    if clear_trails {
-        world.resource_mut::<PheromoneGrid>().clear();
+    // A scenario rewrites the configuration (including its wall and food
+    // lists) *before* the reset, so the normal reset path below rebuilds a
+    // world that already matches the scenario.
+    let mut loaded = None;
+    if scenario.is_some() {
+        loaded = scenario.clone();
+        if let Some(scenario) = scenario {
+            let mut config = world.resource_mut::<SimConfig>();
+            scenario.apply(&mut config);
+            drop(config);
+            info!("scenario '{}' loaded", scenario.name);
+        }
     }
+    let restart = restart || loaded.is_some();
     if restart {
         reset_simulation(world);
         // `reset_simulation` has already respawned the ants and rebuilt the
@@ -309,6 +336,9 @@ fn apply_sim_commands(world: &mut World) {
             &piles,
         );
         info!("world restarted");
+    }
+    if clear_trails {
+        world.resource_mut::<PheromoneGrid>().clear();
     }
 }
 

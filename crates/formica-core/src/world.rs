@@ -181,6 +181,25 @@ impl FoodField {
         Self::from_piles(config.width, config.height, piles)
     }
 
+    /// Build the field from explicitly placed spots instead of the seeded ring.
+    ///
+    /// A scenario carries its own map, so its food is *the map*, not a draw
+    /// from the seed. Spots are clamped into the map the same way the config's
+    /// own values are, and no RNG is consulted - a scenario file plus any seed
+    /// reproduces the same pile layout bit for bit.
+    pub fn from_spots(config: &SimConfig, spots: &[crate::config::FoodSpot]) -> Self {
+        let piles = spots
+            .iter()
+            .map(|spot| FoodPile {
+                x: spot.x,
+                y: spot.y,
+                radius: spot.radius,
+                initial: spot.amount,
+            })
+            .collect();
+        Self::from_piles(config.width, config.height, piles)
+    }
+
     /// Rasterise piles into a per-cell amount grid.
     pub fn from_piles(width: usize, height: usize, piles: Vec<FoodPile>) -> Self {
         let mut field = Self {

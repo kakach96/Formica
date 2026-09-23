@@ -48,6 +48,7 @@ pub mod obstacles;
 pub mod plugin;
 pub mod predator;
 pub mod rng;
+pub mod scenario;
 pub mod systems;
 pub mod world;
 
@@ -75,5 +76,6 @@ pub mod prelude {
         newborn_predator, PredatorAlert, PredatorHeading, PredatorMarker, PredatorPos,
     };
     pub use crate::rng::SimRng;
+    pub use crate::scenario::{Scenario, ScenarioOverrides};
     pub use crate::world::{FoodField, FoodPile, Nest, Nests};
 }

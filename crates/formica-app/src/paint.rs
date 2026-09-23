@@ -52,6 +52,15 @@ type ColonyFields<'a> = ([f32; 3], [f32; 3], &'a [f32], &'a [f32]);
 /// Wall colour.
 const OBSTACLE_RGB: [f32; 3] = [0.30, 0.31, 0.35];
 
+/// Bare soil tone. A dark warm green-brown: dark enough that every pheromone
+/// channel stays readable, warm enough that the map stops reading as space.
+const GROUND_RGB: [f32; 3] = [0.055, 0.075, 0.050];
+
+/// Brightness added to a wall cell with open ground above it (low sun).
+const WALL_TOP_LIGHT: f32 = 0.10;
+/// Brightness removed from a wall's base.
+const WALL_BOTTOM_SHADOW: f32 = 0.05;
+
 /// `(food_rgb, home_rgb)` for a colony.
 ///
 /// Colony 0 is green/violet and colony 1 is amber/cyan. The two sets are far
@@ -131,16 +140,22 @@ pub fn paint_world_field(
         for x in 0..width {
             let offset = (dst_row + x) * 4;
 
-            // A wall hides whatever is underneath it.
+            // A wall hides whatever is underneath it. Shading is computed in
+            // *world* coordinates (up = +y), so the lit top edge of a wall
+            // lands where a low sun would put it after the row flip.
             if obstacles.is_blocked(x as i32, y as i32) {
-                data[offset] = (OBSTACLE_RGB[0] * 255.0) as u8;
-                data[offset + 1] = (OBSTACLE_RGB[1] * 255.0) as u8;
-                data[offset + 2] = (OBSTACLE_RGB[2] * 255.0) as u8;
+                let shade = wall_shade(obstacles, x as i32, y as i32);
+                data[offset] = (shade[0] * 255.0) as u8;
+                data[offset + 1] = (shade[1] * 255.0) as u8;
+                data[offset + 2] = (shade[2] * 255.0) as u8;
                 data[offset + 3] = 255;
                 continue;
             }
 
-            let mut rgb = [0.0f32; 3];
+            // Bare ground, so the map reads as soil rather than as a void. The
+            // trails are still additive on top of it.
+            let ground = ground_color(x as i32, y as i32);
+            let mut rgb = [ground[0], ground[1], ground[2]];
             for (food_rgb, home_rgb, food, home) in &fields {
                 if view.show_food {
                     let v = tone(food[src_row + x], view.food_gain);
@@ -162,6 +177,66 @@ pub fn paint_world_field(
             data[offset + 3] = 255;
         }
     }
+}
+
+/// Bare-ground colour for one cell.
+///
+/// Deterministic value noise from the cell coordinates - never the simulation
+/// RNG, which is reserved for behaviour and must not leak into the renderer's
+/// picture. The contrast is deliberately small: enough to kill the flat-black
+/// look, not enough to compete with the trails drawn on top of it.
+#[inline]
+pub fn ground_color(x: i32, y: i32) -> [f32; 3] {
+    // A cheap integer hash (murmur-style avalanche). Pure function of the
+    // coordinates, so the texture is stable across repaints and processes.
+    let mut h = (x as u32).wrapping_mul(0x7385_6093) ^ (y as u32).wrapping_mul(0x1E35_A7B9);
+    h ^= h >> 16;
+    h = h.wrapping_mul(0x7FEB_352D);
+    h ^= h >> 15;
+    // Two scales: a 4-cell blob and an 11-cell patch. Without the second
+    // octave the map reads as salt-and-pepper instead of soil.
+    let fine = (h & 0xFF) as f32 / 255.0;
+    let coarse = ((h >> 8) & 0xFF) as f32 / 255.0;
+    let coarse = 0.5 + 0.5 * coarse; // keep the low-frequency term bright-ish
+    let variation = 0.85 + 0.10 * fine + 0.15 * coarse;
+    [
+        GROUND_RGB[0] * variation,
+        GROUND_RGB[1] * variation,
+        GROUND_RGB[2] * variation,
+    ]
+}
+
+/// Wall colour for one cell, with a fake low-sun lighting pass.
+///
+/// The top edge of a wall (open cell above it in world space) catches light,
+/// the bottom edge falls into shadow, and the face carries a little per-cell
+/// grain so large blocks do not read as one flat slab. Same coordinates as
+/// [`ground_color`], so both layers hold still together.
+#[inline]
+pub fn wall_shade(obstacles: &Obstacles, x: i32, y: i32) -> [f32; 3] {
+    let open_above = !obstacles.is_blocked(x, y + 1);
+    let open_below = !obstacles.is_blocked(x, y - 1);
+    let mut h = (x as u32).wrapping_mul(0x7385_6093) ^ (y as u32).wrapping_mul(0x1E35_A7B9);
+    h ^= h >> 16;
+    h = h.wrapping_mul(0x7FEB_352D);
+    h ^= h >> 15;
+    let grain = ((h & 0x3F) as f32 / 63.0 - 0.5) * 0.06; // ±3% brightness
+    let mut shade = [
+        OBSTACLE_RGB[0] + grain * 0.4,
+        OBSTACLE_RGB[1] + grain * 0.4,
+        OBSTACLE_RGB[2] + grain * 0.5,
+    ];
+    if open_above {
+        for c in 0..3 {
+            shade[c] += WALL_TOP_LIGHT;
+        }
+    }
+    if open_below {
+        for c in 0..3 {
+            shade[c] -= WALL_BOTTOM_SHADOW;
+        }
+    }
+    shade.map(|v| v.clamp(0.0, 1.0))
 }
 
 #[cfg(test)]
@@ -206,6 +281,57 @@ mod tests {
         assert_eq!(tone(0.0, 0.35), 0.0);
         assert_eq!(tone(-5.0, 0.35), 0.0);
         assert!(tone(1_000.0, 0.35) <= 1.0);
+    }
+
+    /// Ground shading must be deterministic and subtle: stable across calls,
+    /// never dark enough to swallow a trail, never brighter than the tone a
+    /// light trail paints.
+    #[test]
+    fn ground_noise_is_deterministic_and_subtle() {
+        let a = ground_color(31, 7);
+        let b = ground_color(31, 7);
+        assert_eq!(a, b, "the same cell painted twice differs");
+        for x in 0..64 {
+            for y in 0..64 {
+                let g = ground_color(x, y);
+                for c in 0..3 {
+                    // The variation band is 0.85..=1.10 around a dark base.
+                    assert!(
+                        g[c] > 0.0 && g[c] < 0.15,
+                        "ground at ({x},{y}) is out of tone: {g:?}"
+                    );
+                }
+            }
+        }
+        // Not all cells identical - the texture must actually vary somewhere.
+        let first = ground_color(0, 0);
+        let differs = (0..256).any(|i| ground_color(i * 7 + 3, i * 11 + 1) != first);
+        assert!(differs, "ground texture never varies");
+    }
+
+    /// A wall's lit top edge must be brighter than its interior face, and the
+    /// base darker - the fake sun must actually grade the surface.
+    #[test]
+    fn a_wall_has_a_lit_top_edge_and_a_shadowed_base() {
+        let mut obstacles = Obstacles::new(8, 8);
+        // Three wall rows: the top row has open ground above (light), the
+        // bottom row has open ground below (shadow), the middle is the face.
+        for x in 1..7 {
+            for y in 3..6 {
+                obstacles.set(x, y, true);
+            }
+        }
+        let interior = wall_shade(&obstacles, 4, 4);
+        let top = wall_shade(&obstacles, 4, 5);
+        let base = wall_shade(&obstacles, 4, 3);
+        assert!(
+            top[0] > interior[0] + 0.05,
+            "no top light: {top:?} vs {interior:?}"
+        );
+        assert!(
+            base[0] < interior[0] - 0.03,
+            "no base shadow: {base:?} vs {interior:?}"
+        );
     }
 
     #[test]
@@ -265,7 +391,16 @@ mod tests {
         let mut data = vec![0u8; 8 * 8 * 4];
         paint_world_field(&grid, &obstacles, &mut data, &view, 1);
         let pixel = pixel_for_cell(&data, 8, 8, 2, 3);
-        assert_eq!(pixel, [0, 0, 0, 255], "an inactive colony was painted");
+        // The cell shows bare soil - the inactive colony's field contributed
+        // nothing on top of it.
+        let ground = ground_color(2, 3);
+        let expected = [
+            (ground[0] * 255.0) as u8,
+            (ground[1] * 255.0) as u8,
+            (ground[2] * 255.0) as u8,
+            255,
+        ];
+        assert_eq!(pixel, expected, "an inactive colony was painted");
     }
 
     #[test]
@@ -280,10 +415,11 @@ mod tests {
         let mut data = vec![0u8; 8 * 8 * 4];
         paint_world_field(&grid, &obstacles, &mut data, &view, 1);
         let pixel = pixel_for_cell(&data, 8, 8, 2, 3);
+        let shade = wall_shade(&obstacles, 2, 3);
         let expected = [
-            (OBSTACLE_RGB[0] * 255.0) as u8,
-            (OBSTACLE_RGB[1] * 255.0) as u8,
-            (OBSTACLE_RGB[2] * 255.0) as u8,
+            (shade[0] * 255.0) as u8,
+            (shade[1] * 255.0) as u8,
+            (shade[2] * 255.0) as u8,
             255,
         ];
         assert_eq!(pixel, expected, "the wall did not cover the trail");
@@ -308,18 +444,34 @@ mod tests {
             "grid row 0 did not land on the bottom image row: {bottom:?}"
         );
         let top = pixel_at_image_row(&data, 4, 0, 3);
-        assert_eq!(top[1], 0, "the flipped cell was painted too");
+        // Bare soil is dark but not zero: the key claim is that the *trail*
+        // is far brighter than the un-painted flipped cell.
+        assert!(
+            top[1] < 40 && top[1] > 5,
+            "the flipped cell should be bare soil: {top:?}"
+        );
     }
 
     #[test]
-    fn zero_field_paints_opaque_black() {
+    fn zero_field_paints_bare_ground() {
         let view = PheromoneView::default();
         let obstacles = Obstacles::new(4, 4);
         let grid = grid_of(4, 4, 2);
         let mut data = vec![7u8; 4 * 4 * 4];
         paint_world_field(&grid, &obstacles, &mut data, &view, 2);
-        for chunk in data.chunks(4) {
-            assert_eq!(chunk, &[0, 0, 0, 255], "background is not opaque black");
+        for (image_index, chunk) in data.chunks(4).enumerate() {
+            // Undo the row flip to get the world cell this chunk belongs to.
+            let image_row = image_index / 4;
+            let x = image_index % 4;
+            let y = (4 - 1 - image_row) as i32;
+            let ground = ground_color(x as i32, y);
+            let expected = [
+                (ground[0] * 255.0) as u8,
+                (ground[1] * 255.0) as u8,
+                (ground[2] * 255.0) as u8,
+                255,
+            ];
+            assert_eq!(chunk, &expected, "background is not bare ground");
         }
     }
 
@@ -339,10 +491,26 @@ mod tests {
             },
             1,
         );
-        assert!(
-            data.chunks(4).all(|c| c[1] == 0),
-            "food trail drawn while hidden"
-        );
+        // The hidden field must contribute nothing: every cell shows exactly
+        // its bare-soil colour, the trail cell included (no home pheromone
+        // was laid anywhere).
+        let mut bad: Vec<String> = Vec::new();
+        for (image_index, chunk) in data.chunks(4).enumerate() {
+            let image_row = image_index / 4;
+            let x = image_index % 4;
+            let y = (4 - 1 - image_row) as i32;
+            let ground = ground_color(x as i32, y);
+            let expected = [
+                (ground[0] * 255.0) as u8,
+                (ground[1] * 255.0) as u8,
+                (ground[2] * 255.0) as u8,
+                255,
+            ];
+            if chunk != expected {
+                bad.push(format!("cell ({x},{y}): {chunk:?} != {expected:?}"));
+            }
+        }
+        assert!(bad.is_empty(), "food trail drawn while hidden; {bad:?}");
     }
 
     #[test]

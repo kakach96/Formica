@@ -19,8 +19,10 @@
 use std::fmt::Write as _;
 use std::process::ExitCode;
 
+use formica_core::i18n::Strings;
 use formica_core::obstacles::Obstacles;
 use formica_core::prelude::*;
+use formica_core::scenario::Scenario;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -103,6 +105,9 @@ fn main() -> ExitCode {
 #[derive(Debug, Clone)]
 struct Options {
     config: SimConfig,
+    /// The scenario applied to `config`, if one was loaded. Kept around so the
+    /// report can say which scenario produced the numbers.
+    scenario: Option<Scenario>,
     ticks: u64,
     report_every: u64,
     csv: Option<String>,
@@ -120,6 +125,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             config: SimConfig::default(),
+            scenario: None,
             ticks: 5000,
             report_every: 500,
             csv: None,
@@ -256,6 +262,19 @@ impl Options {
                     opts.lang =
                         Lang::parse(raw).ok_or_else(|| s.err_not_a_number.replace("{raw}", raw))?;
                 }
+                "--scenario" => {
+                    // Flags apply in order, so later flags can still override
+                    // a single value on top of the scenario. The scenario is
+                    // applied eagerly here, exactly like the other flags.
+                    let raw = value(args, &mut i, flag, s)?;
+                    let scenario = load_scenario(raw).ok_or_else(|| {
+                        s.err_unknown_scenario
+                            .replace("{name}", raw)
+                            .replace("{list}", &Scenario::builtin_names().join(", "))
+                    })?;
+                    scenario.apply(&mut opts.config);
+                    opts.scenario = Some(scenario);
+                }
                 "--chart-width" => opts.chart_width = number(args, &mut i, flag, s)?,
                 "--chart-height" => opts.chart_height = number(args, &mut i, flag, s)?,
 
@@ -282,6 +301,23 @@ impl Options {
         opts.config.sanitize();
         Ok(Some(opts))
     }
+}
+
+/// Load a scenario by built-in name or by TOML file path.
+///
+/// Files win over built-ins when both exist, but built-ins take their names
+/// first - a file called `labyrinth.toml` is reachable only by its path,
+/// which keeps the plain-name spelling unambiguous.
+fn load_scenario(name_or_path: &str) -> Option<Scenario> {
+    let path = std::path::Path::new(name_or_path);
+    if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"))
+    {
+        let text = std::fs::read_to_string(path).ok()?;
+        return Scenario::parse_toml(&text).ok();
+    }
+    Scenario::builtin(name_or_path)
 }
 
 /// Fill in the geometry of a U-wall preset, keeping whatever was already set.
@@ -409,6 +445,12 @@ fn print_report(opts: &Options, outcome: &Outcome) {
     let colonies = config.colonies();
 
     println!("\n{}", s.report_header);
+    if let Some(scenario) = &opts.scenario {
+        println!(
+            "{}     {} - {}",
+            s.report_scenario, scenario.name, scenario.description
+        );
+    }
     println!(
         "{}         {}x{} cells, {} ants x {} colony = {} ants, {} food piles x {:.0} = {:.0} units",
         s.report_world,

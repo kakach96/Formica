@@ -27,6 +27,13 @@ pub struct Obstacles {
     blocked: Vec<bool>,
     /// The preset currently rasterised into `blocked`.
     pub built: ObstaclePreset,
+    /// How many scenario wall rectangles were stamped into `blocked`.
+    ///
+    /// Part of the change detection in `sync_obstacles`: a preset alone does
+    /// not describe the map once scenarios carry custom walls, and comparing
+    /// only `built` would skip a rebuild whose only change is the scenario
+    /// overlay - leaving a fresh world with no walls at all.
+    pub custom_stamp: usize,
     /// Bumped on every mutation, so the renderer and the pheromone scrubber can
     /// skip work when nothing changed.
     pub revision: u64,
@@ -40,6 +47,7 @@ impl Obstacles {
             height,
             blocked: vec![false; width * height],
             built: ObstaclePreset::None,
+            custom_stamp: 0,
             revision: 0,
         }
     }
@@ -103,6 +111,7 @@ impl Obstacles {
         self.height = height;
         self.blocked = vec![false; width * height];
         self.built = ObstaclePreset::None;
+        self.custom_stamp = 0;
         self.revision = self.revision.wrapping_add(1);
     }
 
@@ -164,7 +173,28 @@ impl Obstacles {
                 }
             }
         }
+        // Scenario walls stamp on top of whatever the preset built. They are
+        // part of the shape rather than a one-off: a rebuild (a slider change,
+        // a resize) re-stamps them together with the preset, so the custom map
+        // can never silently vanish under the user's feet.
+        for wall in &config.custom_walls {
+            self.stamp_rect(wall);
+        }
+        self.custom_stamp = config.custom_walls.len();
         self.built = preset;
+    }
+
+    /// Block every cell covered by an axis-aligned rectangle, in cells.
+    fn stamp_rect(&mut self, wall: &crate::config::WallRect) {
+        let x0 = wall.x.floor().max(0.0) as i32;
+        let y0 = wall.y.floor().max(0.0) as i32;
+        let x1 = (wall.x + wall.w).ceil().min(self.width as f32) as i32;
+        let y1 = (wall.y + wall.h).ceil().min(self.height as f32) as i32;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                self.set(x, y, true);
+            }
+        }
     }
 
     /// Stamp a U-shaped wall whose **interior contains `interior_center`**.
@@ -242,6 +272,7 @@ pub fn sync_obstacles(
     mut obstacles: ResMut<Obstacles>,
 ) {
     if obstacles.built == config.obstacle_preset
+        && obstacles.custom_stamp == config.custom_walls.len()
         && obstacles.width == config.width
         && obstacles.height == config.height
     {

@@ -8,6 +8,12 @@ license.workspace = true
 [dependencies]
 bevy_ecs = { version = "0.19.1", default-features = true }
 bevy_app = { version = "0.19.1", default-features = true }
+# Scenario files. Pure data formats, still render-free: the crate stays
+# GUI-free, but a shareable scenario file needs a real serializer, and
+# hand-rolling a TOML parser (with the escaping and float edge cases that
+# implies) is worse than a small, standard dependency.
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
 
 [dev-dependencies]
 # Used by the acceptance test that drives 5000 ticks headlessly.

@@ -100,7 +100,7 @@ pub fn init_simulation(world: &mut World) {
     let config = world.resource::<SimConfig>().clone();
     let nests = Nests::from_config(&config);
     let mut rng = SimRng::new(config.seed);
-    let food = FoodField::generate(&config, &mut rng);
+    let food = spawn_food(&config, &mut rng);
     let initial_food = food.initial_total;
 
     for index in 0..config.colonies() {
@@ -152,7 +152,7 @@ pub fn reset_simulation(world: &mut World) {
     let config = world.resource::<SimConfig>().clone();
     let nests = Nests::from_config(&config);
     let mut rng = SimRng::new(config.seed);
-    let food = FoodField::generate(&config, &mut rng);
+    let food = spawn_food(&config, &mut rng);
     let initial_food = food.initial_total;
 
     for index in 0..config.colonies() {
@@ -181,6 +181,20 @@ pub fn reset_simulation(world: &mut World) {
         food_remaining: initial_food,
         ..Default::default()
     });
+}
+
+/// Food for a fresh world: the scenario's explicit spots when there are any,
+/// the seeded ring otherwise.
+///
+/// The branch is part of the deterministic contract: a scenario fixes its own
+/// piles, so the ring draw must not consume RNG that the ant spawns then see.
+/// Same config → same stream → bit-identical world, either way.
+fn spawn_food(config: &SimConfig, rng: &mut SimRng) -> FoodField {
+    if config.custom_food.is_empty() {
+        FoodField::generate(config, rng)
+    } else {
+        FoodField::from_spots(config, &config.custom_food)
+    }
 }
 
 /// A headless [`App`] with the simulation installed and ready to tick.

@@ -234,6 +234,20 @@ pub struct Strings {
     // ---- window app: language picker -----------------------------------------------------
     pub language: &'static str,
 
+    // ---- window app: scenarios --------------------------------------------
+    /// Scenario section header.
+    pub scenario_section: &'static str,
+    /// Hint under the builtin dropdown.
+    pub scenario_builtins_hint: &'static str,
+    /// Export button label.
+    pub scenario_export: &'static str,
+    /// Export button tooltip.
+    pub scenario_export_hint: &'static str,
+    /// "wrote the current set-up to {path}"
+    pub scenario_exported_fmt: &'static str,
+    /// "failed to write {path}: {err}"
+    pub scenario_failed_fmt: &'static str,
+
     // ---- headless: CLI help -----------------------------------------------------------------
     pub help_text: &'static str,
     /// "running {ticks} ticks ({ants} ants x {colonies} colony, {w}x{h}, evaporation {evap:.3})..."
@@ -305,6 +319,10 @@ pub struct Strings {
     pub err_unknown_option: &'static str,
     /// "--obstacles: unknown kind '{kind}' (expected none, u-wall or blocks)"
     pub err_unknown_obstacle: &'static str,
+    /// "unknown scenario '{name}' (built-ins: {list} or a .toml path)"
+    pub err_unknown_scenario: &'static str,
+    /// Report line prefix for the scenario row.
+    pub report_scenario: &'static str,
     pub sweep_header_fmt: &'static str,
     pub sweep_columns: &'static str,
 
@@ -451,6 +469,13 @@ pub static EN: Strings = Strings {
     color_legend: "colony 0: green / violet    colony 1: amber / cyan",
     language: "language",
 
+    scenario_section: "Scenario",
+    scenario_builtins_hint: "pick one to load it; the export button saves the current set-up as a TOML file",
+    scenario_export: "export scenario",
+    scenario_export_hint: "writes config + food pile placement to formica-scenario.toml",
+    scenario_exported_fmt: "wrote the current set-up to {path}",
+    scenario_failed_fmt: "failed to write {path}: {err}",
+
     help_text: "\
 Formica - ant colony foraging simulation (headless)
 
@@ -508,6 +533,10 @@ OUTPUT
     --quiet               Only print the final report
     --chart-width N       ASCII chart width                [default: 78]
     --chart-height N      ASCII chart height               [default: 16]
+
+SCENARIOS
+    --scenario S          Built-in name or a TOML file; the rest of the
+                          command line still applies on top
 
 EXPERIMENTS
     --sweep-evaporation L  Comma-separated values; runs each and compares
@@ -568,6 +597,8 @@ EXIT CODE
     err_not_a_number: "'{raw}' is not a valid number",
     err_unknown_option: "unknown option '{flag}'",
     err_unknown_obstacle: "--obstacles: unknown kind '{kind}' (expected none, u-wall or blocks)",
+    err_unknown_scenario: "unknown scenario '{name}' (built-ins: {list}, or a .toml file path)",
+    report_scenario: "scenario",
     sweep_header_fmt: "=== sweep: {name} ({ticks} ticks, {ants} ants x {colonies} colony, {w}x{h}) ===",
     sweep_columns: "delivered", // column headers below are assembled per-language; see `sweep_table`
     verdict_none: "NO FORAGING - the colony never delivered any food",
@@ -716,6 +747,13 @@ pub static ZH: Strings = Strings {
     color_legend: "0 号窝:绿 / 紫    1 号窝:琥珀 / 青",
     language: "语言",
 
+    scenario_section: "场景",
+    scenario_builtins_hint: "选择即加载;导出按钮把当前设置存成 TOML 文件",
+    scenario_export: "导出场景",
+    scenario_export_hint: "把配置与食物堆位置写入 formica-scenario.toml",
+    scenario_exported_fmt: "当前设置已写入 {path}",
+    scenario_failed_fmt: "写入 {path} 失败:{err}",
+
     help_text: "\
 Formica - 蚁群觅食模拟(无渲染命令行)
 
@@ -773,6 +811,10 @@ Formica - 蚁群觅食模拟(无渲染命令行)
     --quiet               只打印最终报告
     --chart-width N       ASCII 图宽                       [默认: 78]
     --chart-height N      ASCII 图高                       [默认: 16]
+
+场景
+    --scenario S          内置场景名或 TOML 文件;其余命令行参数仍然
+                          叠加在其上
 
 实验
     --sweep-evaporation L  逗号分隔的值;逐个运行并对比
@@ -833,6 +875,8 @@ Formica - 蚁群觅食模拟(无渲染命令行)
     err_not_a_number: "'{raw}' 不是合法数字",
     err_unknown_option: "未知选项 '{flag}'",
     err_unknown_obstacle: "--obstacles:未知类型 '{kind}'(应为 none、u-wall 或 blocks)",
+    err_unknown_scenario: "未知场景 '{name}'(内置:{list},或给一个 .toml 文件路径)",
+    report_scenario: "场景",
     sweep_header_fmt: "=== 扫描:{name}({ticks} tick,{ants} 只蚂蚁 x {colonies} 窝,{w}x{h})===",
     sweep_columns: "运回量",
     verdict_none: "没有觅食 - 蚁群从未运回任何食物",
@@ -1086,6 +1130,14 @@ mod tests {
                 busiest_bin,
                 peak_label,
                 occupied_label,
+                scenario_section,
+                scenario_builtins_hint,
+                scenario_export,
+                scenario_export_hint,
+                scenario_exported_fmt,
+                scenario_failed_fmt,
+                err_unknown_scenario,
+                report_scenario,
             );
             for header in s.progress_labels {
                 assert!(

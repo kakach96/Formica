@@ -77,6 +77,36 @@ impl ObstaclePreset {
     }
 }
 
+/// One axis-aligned wall rectangle, in cells.
+///
+/// A scenario's custom map is a list of these, stamped on top of the preset.
+/// Rectangles (rather than per-cell lists) keep the TOML human-editable: a
+/// corridor is one entry, not four hundred cells.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub struct WallRect {
+    /// Lower-left corner x, in cells.
+    pub x: f32,
+    /// Lower-left corner y, in cells.
+    pub y: f32,
+    /// Width in cells.
+    pub w: f32,
+    /// Height in cells.
+    pub h: f32,
+}
+
+/// One explicitly placed food pile, in cells and food units.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FoodSpot {
+    /// Centre x in cells.
+    pub x: f32,
+    /// Centre y in cells.
+    pub y: f32,
+    /// Pile radius in cells.
+    pub radius: f32,
+    /// Food units in the pile.
+    pub amount: f32,
+}
+
 /// Tunable simulation parameters.
 #[derive(Resource, Debug, Clone)]
 pub struct SimConfig {
@@ -182,6 +212,15 @@ pub struct SimConfig {
     // ---- obstacles ------------------------------------------------------
     /// Which obstacle shape to stamp out. See [`ObstaclePreset`].
     pub obstacle_preset: ObstaclePreset,
+    /// Scenario walls stamped on top of the preset, in cells.
+    ///
+    /// Empty for an ordinary run. A scenario carries explicit rectangles so a
+    /// custom map is shareable text rather than mouse strokes.
+    pub custom_walls: Vec<WallRect>,
+    /// Scenario food placement. Empty means the usual seeded ring; non-empty
+    /// replaces generation with these exact piles, which is what makes a
+    /// scenario a *map* and not just a parameter set.
+    pub custom_food: Vec<FoodSpot>,
 
     // ---- predators ------------------------------------------------------
     /// Number of predators. `0` disables them entirely.
@@ -250,6 +289,8 @@ impl Default for SimConfig {
             ant_capacity: 1.0,
 
             obstacle_preset: ObstaclePreset::None,
+            custom_walls: Vec::new(),
+            custom_food: Vec::new(),
 
             predator_count: 0,
             predator_speed: 1.6,
@@ -347,6 +388,23 @@ impl SimConfig {
         self.food_distance_min = self.food_distance_min.max(1.0);
         self.food_distance_max = self.food_distance_max.max(self.food_distance_min);
         self.ant_capacity = self.ant_capacity.clamp(1.0e-3, 1.0e6);
+
+        // Scenario map content is clamped, not dropped: a hand-written TOML
+        // rectangle that pokes past an edge should build the part that fits,
+        // the same way every other clamp behaves.
+        for wall in &mut self.custom_walls {
+            wall.w = wall.w.max(0.0);
+            wall.h = wall.h.max(0.0);
+        }
+        let (w, h) = (self.width as f32, self.height as f32);
+        let max_radius = self.max_pile_radius();
+        for spot in &mut self.custom_food {
+            let margin = self.food_pile_radius.max(1.0);
+            spot.x = spot.x.clamp(margin, (w - margin).max(margin));
+            spot.y = spot.y.clamp(margin, (h - margin).max(margin));
+            spot.radius = spot.radius.clamp(1.0, max_radius);
+            spot.amount = spot.amount.clamp(0.0, 1.0e9);
+        }
 
         self.predator_count = self.predator_count.min(200);
         self.predator_speed = self.predator_speed.clamp(0.0, 32.0);

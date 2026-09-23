@@ -19,17 +19,28 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use formica_core::i18n::{lang_choices, Lang, Strings};
 use formica_core::obstacles::Obstacles;
 use formica_core::prelude::*;
+use formica_core::scenario::Scenario;
 
 use crate::interact::{InteractionState, PaintMode, UiFocus};
 use crate::lang::UiLang;
 use crate::paint::{colony_colors, PheromoneView};
 use crate::render::SimCommands;
 
-/// Startup hook: register a CJK-capable fallback font so Chinese labels are
-/// readable. Runs once, before the first panel frame.
-pub fn install_panel_font(mut contexts: EguiContexts) -> Result {
-    let ctx = contexts.ctx_mut()?;
+/// Install the CJK fallback font the first time the egui context exists.
+///
+/// Runs every pass until it succeeds: on the very first frames the primary
+/// egui context has not been created yet (a `Startup`-time install panics on
+/// exactly that - "no entities fit the query"), so this retries silently and
+/// becomes a no-op afterwards.
+pub fn install_panel_font(mut contexts: EguiContexts, mut done: Local<bool>) -> Result {
+    if *done {
+        return Ok(());
+    }
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return Ok(());
+    };
     crate::lang::install_cjk_fallback(ctx);
+    *done = true;
     Ok(())
 }
 
@@ -38,7 +49,12 @@ pub struct FormicaUiPlugin;
 
 impl Plugin for FormicaUiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(EguiPrimaryContextPass, control_panel);
+        // The font install must land before the first panel frame reads the
+        // string tables; the pass schedule guarantees the ordering.
+        app.add_systems(
+            EguiPrimaryContextPass,
+            (install_panel_font, control_panel).chain(),
+        );
     }
 }
 
@@ -152,6 +168,7 @@ struct PanelState<'w> {
     focus: ResMut<'w, UiFocus>,
     obstacles: Res<'w, Obstacles>,
     stats: Res<'w, SimStats>,
+    food: Res<'w, FoodField>,
     time: Res<'w, Time>,
     ui_lang: ResMut<'w, UiLang>,
 }
@@ -161,6 +178,10 @@ fn control_panel(
     state: PanelState,
     mut smoothed_fps: Local<f32>,
     mut draft_size: Local<Option<(usize, usize)>>,
+    // Result of the last "export scenario" press, cleared on the next click.
+    mut export_status: Local<Option<String>>,
+    // The currently selected built-in scenario name, shown in the dropdown.
+    mut scenario_selection: Local<Option<String>>,
 ) -> Result {
     // Destructured by value so each binding is an owned `Res`/`ResMut`, which
     // coerces to `&mut T` at every call site below.
@@ -172,6 +193,7 @@ fn control_panel(
         mut focus,
         obstacles,
         stats,
+        food,
         time,
         mut ui_lang,
     } = state;
@@ -261,6 +283,16 @@ fn control_panel(
                 ui.separator();
 
                 world_controls(ui, &mut config, &mut commands, &mut draft_size, s);
+                ui.separator();
+                scenario_controls(
+                    ui,
+                    &config,
+                    &mut commands,
+                    &food,
+                    s,
+                    &mut scenario_selection,
+                    &mut export_status,
+                );
                 ui.separator();
                 interact_controls(ui, &mut interaction, s);
                 ui.separator();
@@ -593,6 +625,79 @@ fn world_controls(
                 .color(egui::Color32::from_gray(140)),
             );
         });
+}
+
+/// Scenario loading and export.
+///
+/// Loading goes through `SimCommands` rather than mutating the config here:
+/// the apply needs `&mut World` (the reset respawns ants), so the request
+/// rides the same command path as the restart button. Export needs only
+/// readable data - the config plus the live pile list - so it happens here.
+fn scenario_controls(
+    ui: &mut egui::Ui,
+    config: &SimConfig,
+    commands: &mut SimCommands,
+    food: &FoodField,
+    s: &Strings,
+    selected: &mut Option<String>,
+    export_status: &mut Option<String>,
+) {
+    ui.label(egui::RichText::new(s.scenario_section).strong());
+
+    let builtins = Scenario::builtins();
+    ui.horizontal(|ui| {
+        ui.label(s.scenario_section);
+        let label = selected
+            .as_deref()
+            .unwrap_or_else(|| match builtins.first() {
+                Some(first) => first.name.as_str(),
+                None => "",
+            })
+            .to_string();
+        egui::ComboBox::from_id_salt("formica_scenario")
+            .selected_text(label)
+            .show_ui(ui, |ui| {
+                for scenario in &builtins {
+                    let is_selected = selected.as_deref() == Some(scenario.name.as_str());
+                    if ui
+                        .selectable_label(is_selected, &scenario.name)
+                        .on_hover_text(&scenario.description)
+                        .clicked()
+                    {
+                        *selected = Some(scenario.name.clone());
+                        commands.load_scenario = Some(scenario.clone());
+                        // Loading changes the map shape, so the draft size is
+                        // no longer what the renderer was built for.
+                        *export_status = None;
+                    }
+                }
+            });
+    });
+    ui.small(s.scenario_builtins_hint);
+
+    if ui
+        .button(s.scenario_export)
+        .on_hover_text(s.scenario_export_hint)
+        .clicked()
+    {
+        let path = "formica-scenario.toml";
+        let scenario = Scenario::capture("exported", "", config, &food.piles);
+        match std::fs::write(path, scenario.to_toml_string()) {
+            Ok(()) => {
+                *export_status = Some(s.scenario_exported_fmt.replace("{path}", path));
+            }
+            Err(err) => {
+                *export_status = Some(
+                    s.scenario_failed_fmt
+                        .replace("{path}", path)
+                        .replace("{err}", &err.to_string()),
+                );
+            }
+        }
+    }
+    if let Some(status) = export_status {
+        ui.small(status.clone());
+    }
 }
 
 fn interact_controls(ui: &mut egui::Ui, interaction: &mut InteractionState, s: &Strings) {
