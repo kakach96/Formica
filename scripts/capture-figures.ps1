@@ -7,7 +7,8 @@
 
 [CmdletBinding()]
 param(
-    [string]$OutDir = "docs"
+    # Figures live in their own subdirectory, one level under docs.
+    [string]$OutDir = "docs/figures"
 )
 
 $ErrorActionPreference = "Continue"
