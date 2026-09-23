@@ -20,9 +20,10 @@ crates/
   formica-core/                # pure logic; depends ONLY on bevy_ecs + bevy_app
     src/
       config.rs                # SimConfig (every tunable) + ObstaclePreset
+      scenario.rs              # Scenario: TOML shareable runs (overrides + custom map)
       grid.rs                  # PheromoneGrid: two fields per colony, wall-aware
       world.rs                 # Nests, FoodField, FoodPile
-      obstacles.rs             # Obstacles + U-wall/blocks presets
+      obstacles.rs             # Obstacles + U-wall/blocks presets + scenario walls
       crowd.rs                 # CrowdGrid: 4x4 coarse density grid
       motion.rs                # bounds reflection + wall sliding (ants & predators)
       ant.rs / predator.rs     # components
@@ -32,7 +33,7 @@ crates/
       plugin.rs                # SimPlugin + SimulationTick schedule
       systems/                 # one file per tick stage
     tests/                     # phase1_acceptance, phase4_features, emergence_shape
-  formica-headless/            # CLI: args, ASCII curves, CSV, report, sweeps
+  formica-headless/            # CLI: args, scenarios, ASCII curves, CSV, report, sweeps
   formica-app/                 # Bevy window: render, interact, ui, lang, paint
 scripts/
   capture-figures.ps1          # regenerates every docs/figures/*.png via env-var scripting
@@ -64,7 +65,19 @@ cargo test -p formica-core --release -- --ignored --nocapture  # 5000-tick accep
   simulation code; use `SimRng`. Count-based ordering (components, entities)
   must not leak into behaviour.
 - **No new dependencies in `formica-core`** without discussion — it must stay
-  render-free and light (currently only `bevy_ecs` + `bevy_app`).
+  render-free and light. The one sanctioned exception is `serde` + `toml`, in
+  service of scenario files only: a shareable scenario needs a real
+  serializer, and hand-rolling a TOML parser is worse than a small data-only
+  dependency. Nothing GUI-related may enter the crate.
+- **Scenarios are deterministic.** A scenario is a pure diff onto `SimConfig`
+  (overrides + wall rectangles + food spots); it must never consult the RNG or
+  wall-clock time, so scenario + seed reproduces bit for bit. Its food spots
+  replace the seeded ring at init/reset (`spawn_food`), and its walls stamp
+  through `apply_preset` (via `custom_walls`), so no scenario-specific world
+  building code path exists.
+- **3D is a planned future phase**, not a licence to put rendering into the
+  core. When it comes, it is a second viewer crate over the same resources;
+  the renderer stays read-only with respect to the simulation.
 - **Comments explain *why***, especially when a number was measured (tolerances,
   thresholds, tuning defaults). If you change a measured constant, re-measure
   and update the comment.

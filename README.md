@@ -179,11 +179,31 @@ cargo run -p formica-headless --release -- --obstacles u-wall --ticks 2500
 cargo run -p formica-headless --release -- --predators 6 --food-per-pile 4000
 cargo run -p formica-headless --release -- --colonies 2 --ants 250
 
+# A scenario: built-in name or a TOML file; later flags still override it
+cargo run -p formica-headless --release -- --scenario labyrinth
+cargo run -p formica-headless --release -- --scenario my-run.toml
+
 # All options
 cargo run -p formica-headless --release -- --help
 ```
 
 Exit code: `0` if any colony delivered food, `1` if none did — usable directly as a CI check.
+
+### Scenarios
+
+A scenario is a shareable TOML file: parameter overrides **plus an explicit map** (wall rectangles, food spots). It is what makes a custom map reproducible — scenario + seed runs bit for bit.
+
+| Name | What it is |
+|---|---|
+| `classic` | the brief's defaults: 3 seeded piles, open field |
+| `duel` | two colonies, private trails, one shared food ring |
+| `labyrinth` | 45% walls — the maze the crowding relief exists for |
+| `fortress` | food walled into a U, three predators hunting |
+| `arid` | fast evaporation, sparse colony: hard mode |
+| `long-haul` | 512×512 map, eight piles, one long caravan |
+| `maze-run` | hand-built corridors and a fixed feast at the far end |
+
+`--scenario <name-or-file>` (CLI), the **Scenario** section of the panel (dropdown to load, an export button that writes `formica-scenario.toml`), or `FORMICA_SCENARIO=fortress` for scripted runs. The window also gained a refined look: ants are elongated bodies that rotate with their heading, nests are mounds, food piles are soft discs, walls catch a low sun, and the ground reads as soil instead of a black void.
 
 ### Phase 2 + 3 + 4: interactive window
 
@@ -207,6 +227,7 @@ Left panel:
 | Delivery curve | live cumulative curve (**two lines with two colonies**) + S-score |
 | Run | pause, restart, **clear trails**, ticks/frame fast-forward |
 | Presets | seven reproducible comparison parameter sets |
+| Scenario | **built-in scenarios (dropdown to load)**, export current set-up as TOML |
 | World & food | **map size (drag, then press apply size)**, pile count / total / radius |
 | Mouse | map-editing switch, mode, brush radius, food per new pile |
 | Obstacles | open field / U-shaped wall / scattered blocks; sizes and density |
@@ -332,6 +353,7 @@ Formica/
 │   │   ├── src/
 │   │   │   ├── lib.rs              # module map + prelude + doc example
 │   │   │   ├── config.rs           # SimConfig + ObstaclePreset
+│   │   │   ├── scenario.rs         # Scenario: TOML shareable runs (overrides + custom map)
 │   │   │   ├── grid.rs             # PheromoneGrid: two fields per colony + evaporate/sample/deposit (wall-aware)
 │   │   │   ├── world.rs            # Nests, Nest, FoodField (add/remove piles), FoodPile
 │   │   │   ├── obstacles.rs        # Obstacles: walls + U-wall/blocks presets + sync system

@@ -195,12 +195,30 @@ cargo run -p formica-headless --release -- --obstacles u-wall --ticks 2500
 cargo run -p formica-headless --release -- --predators 6 --food-per-pile 4000
 cargo run -p formica-headless --release -- --colonies 2 --ants 250
 
+# 场景:内置名或 TOML 文件;其余参数仍可叠加
+cargo run -p formica-headless --release -- --scenario labyrinth
+cargo run -p formica-headless --release -- --scenario my-run.toml
+
 # 全部选项
 cargo run -p formica-headless --release -- --help
 ```
 
 命令行退出码：运回了食物 → `0`，一只都没运回 → `1`。可以直接用作 CI 检查。
+### 场景
 
+场景是一份可分享的 TOML:参数覆盖 + 显式地图(墙矩形、食物点)。它让自定义地图可复现——同一场景 + 同一种子 = 逐位相同的运行。
+
+| 名称 | 内容 |
+|---|---|
+| `classic` | 任务书默认:3 堆种子食物、空地 |
+| `duel` | 双蚁群、各自的信息素、共享同一食物环 |
+| `labyrinth` | 45% 墙——拥挤缓解为之而生的迷宫 |
+| `fortress` | 食物被 U 形墙围住、三只捕食者巡猎 |
+| `arid` | 蒸发快、蚁群稀:困难模式 |
+| `long-haul` | 512×512 地图、八个食物堆、一路长队 |
+| `maze-run` | 手工走廊 + 远端一场固定盛宴 |
+
+加载方式:命令行 `--scenario <名称或文件>`、窗口面板的**「场景」**区(下拉加载、「导出场景」按钮写出 `formica-scenario.toml`)、或脚本化运行设 `FORMICA_SCENARIO=fortress`。窗口版渲染同时做了精细化:蚂蚁按朝向旋转、蚁巢是土丘、食物是软圆盘、墙面有受光面与阴影、地面呈现土壤色调。
 ### Phase 2 + 3 + 4：可交互窗口
 
 ```bash
@@ -223,6 +241,7 @@ cargo run -p formica-app --release
 | 运回曲线 | 实时绘制的累积曲线（**两窝时画两条**）+ S 评分 |
 | Run | 暂停、restart、**清空信息素**、ticks/frame 快进 |
 | Presets | 七组可复现的对比参数 |
+| Scenario | **内置场景加载**,导出当前设置为 TOML |
 | World & food | **地图尺寸（拖完点 apply size）**、食物堆数量 / 总量 / 半径 |
 | Mouse | 地图编辑开关、模式、刷子半径、新食物堆含多少食物 |
 | Obstacles | 空地 / U 形墙 / 随机方块；U 形墙尺寸、方块密度 |
@@ -363,8 +382,7 @@ Formica/
 │   ├── formica-core/               # 纯逻辑，只依赖 bevy_ecs + bevy_app
 │   │   ├── src/
 │   │   │   ├── lib.rs              # 模块地图 + prelude + 文档示例
-│   │   │   ├── config.rs           # SimConfig + ObstaclePreset
-│   │   │   ├── grid.rs             # PheromoneGrid：每窝两场 + 蒸发/采样/撒放（可屏蔽墙）
+│   │   │   ├── config.rs           # SimConfig + ObstaclePreset│   │   │   ├── scenario.rs         # Scenario:可分享的 TOML 运行(参数覆盖 + 自定义地图)│   │   │   ├── grid.rs             # PheromoneGrid：每窝两场 + 蒸发/采样/撒放（可屏蔽墙）
 │   │   │   ├── world.rs            # Nests、Nest、FoodField（可增删食物堆）、FoodPile
 │   │   │   ├── obstacles.rs        # Obstacles：墙 + U 形墙/随机方块预设 + 同步 system
 │   │   │   ├── crowd.rs            # CrowdGrid：4×4 粗粒度密度网格 + 最空邻格方向
