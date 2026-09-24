@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Formica">
+  <!-- Formica badge: a soil-toned plaque, an amber ant heading north-east
+       toward a food pile, with the trail it will lay behind it. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d251c"/>
+      <stop offset="1" stop-color="#11150f"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="4" y="4" width="120" height="120" rx="27" fill="url(#bg)" stroke="#3c4a35" stroke-width="3"/>
+
+  <!-- pheromone trail: dashed dots running from the abdomen to the pile -->
+  <path d="M 52 72 Q 45 88 40 103" fill="none" stroke="#86e59a" stroke-width="4.5"
+        stroke-linecap="round" stroke-dasharray="0.1 9" opacity="0.9"/>
+  <!-- the food pile at the end of the trail -->
+  <circle cx="40" cy="103" r="9" fill="#8ce064"/>
+  <circle cx="40" cy="103" r="4.5" fill="#b5f58e"/>
+
+  <!-- the ant: abdomen, thorax, head, two antennae -->
+  <g transform="translate(76 52) rotate(-38)">
+    <path d="M 27 -2 L 41 -12" stroke="#ffcf8a" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+    <path d="M 27 2 L 41 12" stroke="#ffcf8a" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+    <ellipse cx="-15" cy="0" rx="16" ry="10.5" fill="#e8722f"/>
+    <ellipse cx="4" cy="0" rx="10" ry="7.5" fill="#ff8a45"/>
+    <ellipse cx="20" cy="0" rx="8.5" ry="7" fill="#ffb066"/>
+  </g>
+</svg>

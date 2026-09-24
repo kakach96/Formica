@@ -2,6 +2,8 @@
 
 > English | [中文](README.zh-CN.md)
 
+![Formica's badge: an amber ant heading toward a food pile along its pheromone trail](docs/figures/logo.svg)
+
 An ant colony foraging simulator built from scratch in Rust + Bevy. Each ant follows only three rules: **follow the food scent, drop home scent as you go, and turn around when you find food**.
 No single ant knows where the food is, and there is no global plan — yet within a few thousand ticks the colony spontaneously forms a stable trail from nest to food.
 
