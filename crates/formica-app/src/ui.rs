@@ -337,6 +337,8 @@ fn control_panel(
                 ui.separator();
                 obstacle_controls(ui, &mut config, &obstacles, s);
                 ui.separator();
+                homing_controls(ui, &mut config, s);
+                ui.separator();
                 colony_controls(ui, &mut config, s);
                 ui.separator();
                 pheromone_controls(ui, &mut config, s);
@@ -837,6 +839,37 @@ fn obstacle_controls(
                 .color(egui::Color32::from_gray(140)),
             );
             ui.small(s.draw_your_own);
+        });
+}
+
+/// How returning ants get home, live-selectable: the anti-jam knob for maps
+/// where a drawn wall sits between an ant and its nest.
+fn homing_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
+    egui::CollapsingHeader::new(egui::RichText::new(s.homing_section).strong())
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(s.homing_mode);
+                let modes = [
+                    (
+                        HomingMode::PathIntegration,
+                        s.homing_path,
+                        s.homing_path_hint,
+                    ),
+                    (HomingMode::WallSense, s.homing_wall, s.homing_wall_hint),
+                    (HomingMode::FlowField, s.homing_flow, s.homing_flow_hint),
+                ];
+                for (mode, label, hint) in modes {
+                    let selected = config.homing_mode == mode;
+                    if ui
+                        .selectable_label(selected, label)
+                        .on_hover_text(hint)
+                        .clicked()
+                    {
+                        config.homing_mode = mode;
+                    }
+                }
+            });
         });
 }
 

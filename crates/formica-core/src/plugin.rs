@@ -18,6 +18,7 @@ use bevy_ecs::schedule::ScheduleLabel;
 use crate::ant::{newborn_ant, AntColony, AntMarker, Carrying};
 use crate::config::SimConfig;
 use crate::crowd::{CrowdGrid, CROWD_BIN};
+use crate::flow::NestFlow;
 use crate::grid::{PheromoneGrid, MAX_COLONIES};
 use crate::metrics::SimStats;
 use crate::obstacles::{sync_obstacles, Obstacles};
@@ -25,8 +26,8 @@ use crate::rng::SimRng;
 use crate::systems::{
     decide_heading, deliver_food, deposit_pheromones, evaporate_pheromones, move_ants,
     move_predators, pickup_food, predators_catch_ants, relieve_crowding, scrub_obstacle_pheromones,
-    sense_pheromones, sync_ant_count, sync_nests, sync_predator_count, tally_crowding,
-    update_stats,
+    sense_pheromones, sync_ant_count, sync_nest_flow, sync_nests, sync_predator_count,
+    tally_crowding, update_stats,
 };
 use crate::world::{FoodField, Nests};
 
@@ -63,6 +64,9 @@ impl Plugin for SimPlugin {
             (
                 sync_nests,
                 sync_obstacles,
+                // The nest flow field raids the wall map, so it is rebuilt from
+                // the freshly stamped obstacles before anything navigates.
+                sync_nest_flow,
                 scrub_obstacle_pheromones,
                 sync_predator_count,
                 evaporate_pheromones,
@@ -120,6 +124,9 @@ pub fn init_simulation(world: &mut World) {
         MAX_COLONIES,
     ));
     world.insert_resource(Obstacles::new(config.width, config.height));
+    // The flow field starts unbuilt; `sync_nest_flow` builds it on the first
+    // tick when (and only when) FlowField homing is selected.
+    world.insert_resource(NestFlow::new(config.width, config.height));
     world.insert_resource(CrowdGrid::new(config.width, config.height, CROWD_BIN));
     world.insert_resource(SimStats {
         food_initial: initial_food,
@@ -175,6 +182,8 @@ pub fn reset_simulation(world: &mut World) {
     // tick, and the revision bump makes the renderer and the pheromone scrubber
     // notice.
     world.insert_resource(Obstacles::new(config.width, config.height));
+    // Ditto for the nest flow field: freshly unbuilt, rebuilt on first use.
+    world.insert_resource(NestFlow::new(config.width, config.height));
     world.insert_resource(CrowdGrid::new(config.width, config.height, CROWD_BIN));
     world.insert_resource(SimStats {
         food_initial: initial_food,

@@ -70,6 +70,8 @@ pub struct ScenarioOverrides {
     pub predator_sense: Option<f32>,
     /// Catch radius in cells.
     pub predator_catch: Option<f32>,
+    /// How returning ants navigate home: `path`, `wall` or `flow`.
+    pub homing: Option<String>,
 }
 
 /// One shareable scenario: overrides plus an explicit map.
@@ -265,6 +267,11 @@ impl Scenario {
                 config.obstacle_preset = preset;
             }
         }
+        if let Some(raw) = &o.homing {
+            if let Some(mode) = crate::config::HomingMode::parse(raw) {
+                config.homing_mode = mode;
+            }
+        }
         config.custom_walls = self.walls.clone();
         config.custom_food = self.food.clone();
         config.sanitize();
@@ -318,6 +325,7 @@ impl Scenario {
                 food_per_pile: Some(config.food_per_pile),
                 pile_radius: Some(config.food_pile_radius),
                 obstacles: Some(preset_keyword(&config.obstacle_preset).to_string()),
+                homing: Some(config.homing_mode.keyword().to_string()),
                 predators: Some(config.predator_count),
                 predator_speed: Some(config.predator_speed),
                 predator_sense: Some(config.predator_sense),

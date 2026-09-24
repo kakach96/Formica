@@ -253,6 +253,16 @@ impl Options {
                 "--crowd-threshold" => opts.config.crowd_threshold = number(args, &mut i, flag, s)?,
                 "--crowd-relief" => opts.config.crowd_relief = number(args, &mut i, flag, s)?,
 
+                "--homing" => {
+                    let raw = value(args, &mut i, flag, s)?;
+                    opts.config.homing_mode = formica_core::config::HomingMode::parse(raw)
+                        .ok_or_else(|| {
+                            s.err_unknown_homing
+                                .replace("{kind}", raw)
+                                .replace("{flag}", flag)
+                        })?;
+                }
+
                 "--sample-interval" => opts.config.sample_interval = number(args, &mut i, flag, s)?,
                 "--report-every" => opts.report_every = number(args, &mut i, flag, s)?,
                 "--csv" => opts.csv = Some(value(args, &mut i, flag, s)?.to_string()),
@@ -486,6 +496,9 @@ fn print_report(opts: &Options, outcome: &Outcome) {
             s.wall_cells,
             100.0 * outcome.walls as f32 / config.cell_count() as f32
         );
+    }
+    if config.homing_mode != HomingMode::PathIntegration {
+        println!("{}  {}", s.report_homing, config.homing_mode.keyword());
     }
     if config.predator_count > 0 {
         println!(

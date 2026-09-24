@@ -40,6 +40,7 @@
 pub mod ant;
 pub mod config;
 pub mod crowd;
+pub mod flow;
 pub mod grid;
 pub mod i18n;
 pub mod metrics;
@@ -58,8 +59,9 @@ pub mod prelude {
         newborn_ant, wrap_angle, AntColony, AntHeading, AntMarker, AntPos, AntState, Carrying,
         PheromoneSensors,
     };
-    pub use crate::config::{ObstaclePreset, SimConfig};
+    pub use crate::config::{HomingMode, ObstaclePreset, SimConfig};
     pub use crate::crowd::{CrowdGrid, CROWD_BIN};
+    pub use crate::flow::{rebuild_nest_flow, NestFlow, UNREACHABLE};
     pub use crate::grid::{Deposit, Pheromone, PheromoneGrid, MAX_COLONIES, PHEROMONE_EPSILON};
     pub use crate::i18n::{lang_choices, Lang, Strings, EN, ZH};
     pub use crate::metrics::{

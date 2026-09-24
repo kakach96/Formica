@@ -77,6 +77,57 @@ impl ObstaclePreset {
     }
 }
 
+/// How a food-carrying ant finds its way back to the nest.
+///
+/// The brief's rule is *path integration*: a returning ant steers straight at
+/// its nest. On an open map that is perfect - and exactly what the grid
+/// ants do, since the math is the same as an ant integrating its own
+/// outbound steps. But a wall between the ant and the nest turns the direct
+/// course into a jam against it (see the U-wall preset), so two richer
+/// strategies exist as options:
+///
+/// * migrating from "straight line" to "follow the wall" - whiskers sense the
+///   wall before contact and steer away, which is the jam-escape toolkit, and
+/// * a BFS flow field to the nest ( [`crate::flow::NestFlow`] ), which is
+///   "the colony knows the building", top-down navigation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HomingMode {
+    /// Direct homing: steer at the nest, clamped to `max_turn_rate`. Brief
+    /// behaviour, bit-identical to historical runs.
+    #[default]
+    PathIntegration,
+    /// Direct homing plus wall whiskers: sense walls a few cells ahead with
+    /// the antennae arc, turn away before touching, and hug open sides - the
+    /// stuck-escape family.
+    WallSense,
+    /// Steer along the BFS flow field towards the nest. Works around any
+    /// obstacle, at the cost of a braid-truth (a map the ant did not explore).
+    FlowField,
+}
+
+impl HomingMode {
+    /// The keyword used by the CLI flag and scenario TOML field.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            HomingMode::PathIntegration => "path",
+            HomingMode::WallSense => "wall",
+            HomingMode::FlowField => "flow",
+        }
+    }
+
+    /// Parse a CLI/TOML keyword; `parse` accepts the spellings users type.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "path" | "path-integration" | "direct" | "pi" => Some(HomingMode::PathIntegration),
+            "wall" | "wall-sense" | "whiskers" | "escape" | "thigmotaxis" => {
+                Some(HomingMode::WallSense)
+            }
+            "flow" | "flow-field" | "bfs" | "field" => Some(HomingMode::FlowField),
+            _ => None,
+        }
+    }
+}
+
 /// One axis-aligned wall rectangle, in cells.
 ///
 /// A scenario's custom map is a list of these, stamped on top of the preset.
@@ -174,6 +225,12 @@ pub struct SimConfig {
     pub home_pheromone_weight: f32,
     /// Sensor readings below this are treated as "no signal".
     pub pheromone_deadzone: f32,
+    /// Navigation strategy of returning ants. See [`HomingMode`].
+    ///
+    /// The default (`PathIntegration`) is the brief's direct homing and is
+    /// bit-identical to every historical run; the other two are the answers to
+    /// "what if the drawn wall sits between an ant and its nest".
+    pub homing_mode: HomingMode,
 
     // ---- movement -------------------------------------------------------
     /// Cells travelled per tick.
@@ -275,6 +332,7 @@ impl Default for SimConfig {
             max_turn_rate: 0.8,
             home_pheromone_weight: 0.0,
             pheromone_deadzone: 1.0e-4,
+            homing_mode: HomingMode::PathIntegration,
 
             speed: DEFAULT_SPEED,
 
@@ -499,5 +557,38 @@ mod tests {
         assert_ne!(a, b);
         assert_eq!(a, a);
         assert_ne!(a, ObstaclePreset::None);
+    }
+
+    /// Homing modes round-trip through their keywords, and the default stays
+    /// the brief's behaviour - historical runs must remain bit-identical.
+    #[test]
+    fn homing_modes_roundtrip_through_their_keywords() {
+        assert_eq!(HomingMode::default(), HomingMode::PathIntegration);
+        assert_eq!(HomingMode::parse("path"), Some(HomingMode::PathIntegration));
+        assert_eq!(
+            HomingMode::parse("path-integration"),
+            Some(HomingMode::PathIntegration)
+        );
+        assert_eq!(
+            HomingMode::parse("DIRECT"),
+            Some(HomingMode::PathIntegration)
+        );
+        assert_eq!(HomingMode::parse("wall-sense"), Some(HomingMode::WallSense));
+        assert_eq!(HomingMode::parse("WHISKERS"), Some(HomingMode::WallSense));
+        assert_eq!(HomingMode::parse("flow_field"), Some(HomingMode::FlowField));
+        assert_eq!(HomingMode::parse("BFS"), Some(HomingMode::FlowField));
+        assert_eq!(HomingMode::parse("nonsense"), None);
+        // Keywords match the CLI flag spellings one to one.
+        for mode in [
+            HomingMode::PathIntegration,
+            HomingMode::WallSense,
+            HomingMode::FlowField,
+        ] {
+            assert_eq!(
+                HomingMode::parse(mode.keyword()),
+                Some(mode),
+                "{mode:?} keyword round-trip"
+            );
+        }
     }
 }

@@ -25,6 +25,7 @@ crates/
       world.rs                 # Nests, FoodField, FoodPile
       obstacles.rs             # Obstacles + U-wall/blocks presets + scenario walls
       crowd.rs                 # CrowdGrid: 4x4 coarse density grid
+      flow.rs                  # NestFlow: per-colony BFS distance field to the nest
       motion.rs                # bounds reflection + wall sliding (ants & predators)
       ant.rs / predator.rs     # components
       rng.rs                   # SplitMix64 + Box-Muller, deterministic, zero deps

@@ -330,6 +330,7 @@ cargo test -p formica-core --release -- --ignored --nocapture   # 完整 5000 ti
 | `sensor_turn_gain` | 0.6 | `--turn-gain` | 朝最优触角的转向量 |
 | `max_turn_rate` | 0.8 | — | 归巢时每 tick 最大转向 |
 | `home_pheromone_weight` | 0.0 | — | 归巢蚂蚁跟随归巢气味的权重（0 = 任务书行为） |
+| `homing_mode` | path | `--homing` | 归巢蚂蚁的导航方式:`path`(直线,任务书行为)/ `wall`(触角提前感知墙体并逃逸)/ `flow`(到巢穴的 BFS 导航场) |
 | `individuality` | 0.6 | `--individuality` | **个体差异强度**（对数正态 sigma，0 = 全部一样） |
 | `crowd_threshold` | 24 | `--crowd-threshold` | 每个 4×4 方块超过多少只算堵塞 |
 | `crowd_relief` | 0.6 | `--crowd-relief` | 挤开时每 tick 挪多少格（0 = 关闭缓解） |
@@ -397,7 +398,7 @@ Formica/
 │   │   │   ├── plugin.rs           # SimPlugin、SimulationTick schedule、初始化/重置
 │   │   │   └── systems/            # 一阶段一文件
 │   │   │       ├── sense.rs  decide.rs  movement.rs  deposit.rs  evaporate.rs
-│   │   │       ├── crowd.rs  interact.rs  spawn.rs  stats.rs  predator.rs  obstacles.rs
+│   │   │       ├── crowd.rs  interact.rs  spawn.rs  stats.rs  predator.rs  obstacles.rs  flow.rs
 │   │   ├── tests/
 │   │   │   ├── phase1_acceptance.rs  # 验收 + 守恒不变量 + 信息素对照实验
 │   │   │   ├── phase4_features.rs    # 障碍物/捕食者/双蚁群 + 地图缩放 + 玩家放食物
@@ -431,7 +432,7 @@ cargo test --release
 
 全部单元 + 集成测试（另有 1 个 `#[ignore]` 的完整 5000 tick 验收，用 `-- --ignored` 跑），
 覆盖网格语义、蚂蚁行为、个体差异、拥挤、移动与墙、障碍物、捕食者、双蚁群、食物系统、
-食物渲染、地图缩放、统计、调度、集成不变量、形状回归、渲染、交互与 i18n。
+食物渲染、归巢导航方式、地图缩放、统计、调度、集成不变量、形状回归、渲染、交互与 i18n。
 
 测试设计的完整说明（守恒律、对照实验即测试、行翻转、幻影食物堆回归、
 "测位移而不是产量"、"对照组自检"）见 **[实验与发现](docs/zh-experiments.md)**。
@@ -445,7 +446,7 @@ cargo test --release
 - **个体差异是单轴的**：每只蚂蚁只有一个"胆量"值，同时决定游走强度和速度。
 - **拥挤缓解只治"挤"，不治"堵"**：45% 墙密度下地形本身不渗流，蚂蚁出不去——这是地图的问题，不是规则的问题。
 - **蚂蚁没有个体记忆**：`AntVigor` 是生成时抽定的固定性格，不是"我来过这里"的记忆，也不是学习。
-- **归巢是直线朝向**：符合任务书要求；`home_pheromone_weight` 已预留跟随归巢气味的开关。
+- **归巢是直线朝向**：符合任务书要求；`home_pheromone_weight` 已预留跟随归巢气味的开关。对于蚂蚁与巢穴之间有墙的情形,`--homing wall`(触角避墙 + 卡死逃逸)与 `--homing flow`(BFS 巢穴导航场)是可选方案;默认保持任务书行为不变(1500 tick 单缺口墙地图实测:直线 344 单位、避墙 452、导航场 2020)。
 - **捕食者不吃蚁后/不消耗自己**：捕食压力是恒定的。
 - **U 形墙只围第一个食物堆**：为了让实验可复现。
 - **地图尺寸不能连续拖**：拖完要点 apply size，因为要重分配纹理并重建场景。

@@ -306,6 +306,7 @@ Versions: **Bevy 0.19.1** + **bevy_egui 0.42.0** (egui 0.36).
 | `sensor_turn_gain` | 0.6 | `--turn-gain` | turn toward the best antenna |
 | `max_turn_rate` | 0.8 | — | max heading change while homing |
 | `home_pheromone_weight` | 0.0 | — | returning ants following home scent (0 = brief behaviour) |
+| `homing_mode` | path | `--homing` | returning-ant navigation: `path` (direct, brief) / `wall` (whiskers sense walls ahead and escape jams) / `flow` (BFS flow field to the nest) |
 | `individuality` | 0.6 | `--individuality` | **per-ant trait spread** (log-normal sigma; 0 = clones) |
 | `crowd_threshold` | 24 | `--crowd-threshold` | ants per 4×4 bin counted as a jam |
 | `crowd_relief` | 0.6 | `--crowd-relief` | cells stepped out of a jam per tick (0 = off) |
@@ -369,7 +370,7 @@ Formica/
 │   │   │   ├── plugin.rs           # SimPlugin, SimulationTick schedule, init/reset
 │   │   │   └── systems/            # one file per stage
 │   │   │       ├── sense.rs  decide.rs  movement.rs  deposit.rs  evaporate.rs
-│   │   │       ├── crowd.rs  interact.rs  spawn.rs  stats.rs  predator.rs  obstacles.rs
+│   │   │       ├── crowd.rs  interact.rs  spawn.rs  stats.rs  predator.rs  obstacles.rs  flow.rs
 │   │   ├── tests/
 │   │   │   ├── phase1_acceptance.rs  # acceptance + conservation invariants + pheromone control
 │   │   │   ├── phase4_features.rs    # obstacles/predators/two colonies + map resize + player food
@@ -401,7 +402,7 @@ Formica/
 cargo test --release
 ```
 
-All unit + integration tests (plus one `#[ignore]` full 5000-tick acceptance, run with `-- --ignored`), covering grid semantics, ant behaviour, individuality, crowding, movement and walls, obstacles, predators, two colonies, the food system, food rendering, map resize, statistics, scheduling, integration invariants, shape regressions, rendering, interaction and i18n.
+All unit + integration tests (plus one `#[ignore]` full 5000-tick acceptance, run with `-- --ignored`), covering grid semantics, ant behaviour, individuality, crowding, movement and walls, obstacles, predators, two colonies, the food system, food rendering, homing navigation modes, map resize, statistics, scheduling, integration invariants, shape regressions, rendering, interaction and i18n.
 
 The full write-up of the test design (the conservation law, control experiments as tests, the row flip, the phantom-pile regression, "measure displacement, not yield", "the control group self-check") lives in **[Experiments & findings](docs/en-experiments.md)**.
 
@@ -414,7 +415,7 @@ The full write-up of the test design (the conservation law, control experiments 
 - **Individuality is single-axis**: one "boldness" value drives both wander and speed.
 - **Crowding relief treats crowding, not blockage**: at 45% wall density the terrain itself does not percolate and ants cannot get out — a map problem, not a rules problem.
 - **Ants have no individual memory**: `AntVigor` is a fixed temperament drawn at spawn, not "I have been here" memory, and it is not learning.
-- **Homing is a straight heading**: per the brief; `home_pheromone_weight` already exposes the follow-the-scent switch.
+- **Homing is a straight heading**: per the brief; `home_pheromone_weight` already exposes the follow-the-scent switch. For walls between an ant and its nest, `--homing wall` (whiskers + jam escape) and `--homing flow` (BFS nest flow field) are the optional answers; the default stays brief-exact and bit-identical (measured at 1500 ticks over a one-gap wall map: direct 344 units delivered, wall-sense 452, flow-field 2020).
 - **Predators neither tire nor satiate**: predation pressure is constant.
 - **The U-shaped wall wraps only the first food pile**: to keep experiments reproducible.
 - **Map size cannot be dragged continuously**: drag, then press apply size, because resizing reallocates the texture and rebuilds the scene.

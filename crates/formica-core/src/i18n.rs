@@ -172,6 +172,16 @@ pub struct Strings {
     pub wall_cells: &'static str,
     pub draw_your_own: &'static str,
 
+    // ---- window app: homing navigation ---------------------------------------
+    pub homing_section: &'static str,
+    pub homing_mode: &'static str,
+    pub homing_path: &'static str,
+    pub homing_path_hint: &'static str,
+    pub homing_wall: &'static str,
+    pub homing_wall_hint: &'static str,
+    pub homing_flow: &'static str,
+    pub homing_flow_hint: &'static str,
+
     // ---- window app: colonies ----------------------------------------------
     pub colonies_section: &'static str,
     pub competing_colonies: &'static str,
@@ -322,6 +332,10 @@ pub struct Strings {
     pub err_unknown_obstacle: &'static str,
     /// "unknown scenario '{name}' (built-ins: {list} or a .toml path)"
     pub err_unknown_scenario: &'static str,
+    /// "--homing: unknown mode '{kind}' (expected path, wall or flow)"
+    pub err_unknown_homing: &'static str,
+    /// Report line prefix for the homing row.
+    pub report_homing: &'static str,
     /// Report line prefix for the scenario row.
     pub report_scenario: &'static str,
     pub sweep_header_fmt: &'static str,
@@ -417,6 +431,15 @@ pub static EN: Strings = Strings {
     wall_density: "wall density",
     wall_cells: "wall cells",
     draw_your_own: "draw your own with the Mouse section above",
+
+    homing_section: "Homing navigation",
+    homing_mode: "mode",
+    homing_path: "path integration",
+    homing_path_hint: "steer straight at the nest (brief behaviour); walls between an ant and home pile it up",
+    homing_wall: "wall whiskers",
+    homing_wall_hint: "the antennae sense walls a few cells ahead; a felt wall is escaped hard, a nearby wall avoided gently",
+    homing_flow: "nest flow field",
+    homing_flow_hint: "follow a BFS distance field to the nest - routes around any wall, rebuilds on every map edit",
 
     colonies_section: "Colonies",
     competing_colonies: "competing colonies",
@@ -528,6 +551,10 @@ CROWDING
     --crowd-threshold F   Ants per 4x4 bin counted as a jam [default: 24]
     --crowd-relief F      Cells an ant steps out of a jam  [default: 0.6]
 
+HOMING
+    --homing MODE         path | wall | flow - how returning ants navigate
+                          home when walls block the way  [default: path]
+
 OUTPUT
     --sample-interval N   Ticks between curve samples      [default: 10]
     --report-every N      Progress line interval, 0=off    [default: 500]
@@ -600,6 +627,8 @@ EXIT CODE
     err_unknown_option: "unknown option '{flag}'",
     err_unknown_obstacle: "--obstacles: unknown kind '{kind}' (expected none, u-wall or blocks)",
     err_unknown_scenario: "unknown scenario '{name}' (built-ins: {list}, or a .toml file path)",
+    err_unknown_homing: "--homing: unknown mode '{kind}' (expected path, wall or flow)",
+    report_homing: "homing",
     report_scenario: "scenario",
     sweep_header_fmt: "=== sweep: {name} ({ticks} ticks, {ants} ants x {colonies} colony, {w}x{h}) ===",
     sweep_columns: "delivered", // column headers below are assembled per-language; see `sweep_table`
@@ -696,6 +725,15 @@ pub static ZH: Strings = Strings {
     wall_density: "墙密度",
     wall_cells: "个墙格",
     draw_your_own: "用上面的「鼠标」区自己画",
+
+    homing_section: "归巢导航",
+    homing_mode: "模式",
+    homing_path: "航位推算",
+    homing_path_hint: "直接朝蚁巢直线飞(基线行为);蚂蚁与巢穴之间有墙时会堆积在墙前",
+    homing_wall: "触角避墙",
+    homing_wall_hint: "触角提前数格感知墙体;感知到墙即强力转向逃逸,轻微贴墙则温和避让",
+    homing_flow: "巢穴导航场",
+    homing_flow_hint: "沿到巢穴的 BFS 距离场下山:可绕开任何墙体,每次改墙都会重建",
 
     colonies_section: "蚁群",
     competing_colonies: "竞争蚁群数",
@@ -807,6 +845,10 @@ Formica - 蚁群觅食模拟(无渲染命令行)
     --crowd-threshold F   每个 4x4 方块多少只算堵塞        [默认: 24]
     --crowd-relief F      挤开时每 tick 挪多少格           [默认: 0.6]
 
+归巢
+    --homing MODE         path | wall | flow - 搬运蚂蚁如何绕墙回家
+                                                    [默认: path]
+
 输出
     --sample-interval N   曲线采样间隔(tick)              [默认: 10]
     --report-every N      进度行间隔, 0 = 关闭             [默认: 500]
@@ -879,6 +921,8 @@ Formica - 蚁群觅食模拟(无渲染命令行)
     err_unknown_option: "未知选项 '{flag}'",
     err_unknown_obstacle: "--obstacles:未知类型 '{kind}'(应为 none、u-wall 或 blocks)",
     err_unknown_scenario: "未知场景 '{name}'(内置:{list},或给一个 .toml 文件路径)",
+    err_unknown_homing: "--homing:未知模式 '{kind}'(应为 path、wall 或 flow)",
+    report_homing: "归巢方式",
     report_scenario: "场景",
     sweep_header_fmt: "=== 扫描:{name}({ticks} tick,{ants} 只蚂蚁 x {colonies} 窝,{w}x{h})===",
     sweep_columns: "运回量",
@@ -1125,6 +1169,14 @@ mod tests {
                 obstacle_none_label,
                 obstacle_u_wall_label,
                 obstacle_blocks_label,
+                homing_section,
+                homing_mode,
+                homing_path,
+                homing_path_hint,
+                homing_wall,
+                homing_wall_hint,
+                homing_flow,
+                homing_flow_hint,
                 units_suffix,
                 trips_suffix,
                 map_remaining,
@@ -1142,6 +1194,8 @@ mod tests {
                 scenario_exported_fmt,
                 scenario_failed_fmt,
                 err_unknown_scenario,
+                err_unknown_homing,
+                report_homing,
                 report_scenario,
             );
             for header in s.progress_labels {
