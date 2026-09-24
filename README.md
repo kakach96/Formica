@@ -203,7 +203,7 @@ A scenario is a shareable TOML file: parameter overrides **plus an explicit map*
 | `long-haul` | 512×512 map, eight piles, one long caravan |
 | `maze-run` | hand-built corridors and a fixed feast at the far end |
 
-`--scenario <name-or-file>` (CLI), the **Scenario** section of the panel (dropdown to load, an export button that writes `formica-scenario.toml`), or `FORMICA_SCENARIO=fortress` for scripted runs. The window also gained a refined look: ants are elongated bodies that rotate with their heading, nests are mounds, food piles are soft discs, walls catch a low sun, and the ground reads as soil instead of a black void.
+`--scenario <name-or-file>` (CLI), the **Scenario** section of the panel (dropdown to load, an export button that writes `scenarios/formica-scenario.toml`), or `FORMICA_SCENARIO=fortress` for scripted runs. The window also gained a refined look: ants are elongated bodies that rotate with their heading, nests are mounds, food piles are soft discs, walls catch a low sun, and the ground reads as soil instead of a black void.
 
 ### Phase 2 + 3 + 4: interactive window
 

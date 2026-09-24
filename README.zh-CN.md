@@ -218,7 +218,7 @@ cargo run -p formica-headless --release -- --help
 | `long-haul` | 512×512 地图、八个食物堆、一路长队 |
 | `maze-run` | 手工走廊 + 远端一场固定盛宴 |
 
-加载方式:命令行 `--scenario <名称或文件>`、窗口面板的**「场景」**区(下拉加载、「导出场景」按钮写出 `formica-scenario.toml`)、或脚本化运行设 `FORMICA_SCENARIO=fortress`。窗口版渲染同时做了精细化:蚂蚁按朝向旋转、蚁巢是土丘、食物是软圆盘、墙面有受光面与阴影、地面呈现土壤色调。
+加载方式:命令行 `--scenario <名称或文件>`、窗口面板的**「场景」**区(下拉加载、「导出场景」按钮写出 `scenarios/formica-scenario.toml`)、或脚本化运行设 `FORMICA_SCENARIO=fortress`。窗口版渲染同时做了精细化:蚂蚁按朝向旋转、蚁巢是土丘、食物是软圆盘、墙面有受光面与阴影、地面呈现土壤色调。
 ### Phase 2 + 3 + 4：可交互窗口
 
 ```bash

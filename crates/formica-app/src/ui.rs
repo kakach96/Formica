@@ -24,9 +24,10 @@ use formica_core::scenario::Scenario;
 use crate::interact::{InteractionState, PaintMode, UiFocus};
 use crate::lang::UiLang;
 use crate::paint::{colony_colors, PheromoneView};
-use crate::render::SimCommands;
+use crate::render::{PanelMetrics, SimCommands};
 
-/// Install the CJK fallback font the first time the egui context exists.
+/// Install the CJK fallback font and the panel look the first time the egui
+/// context exists.
 ///
 /// Runs every pass until it succeeds: on the very first frames the primary
 /// egui context has not been created yet (a `Startup`-time install panics on
@@ -40,8 +41,36 @@ pub fn install_panel_font(mut contexts: EguiContexts, mut done: Local<bool>) -> 
         return Ok(());
     };
     crate::lang::install_cjk_fallback(ctx);
+    apply_panel_style(ctx);
     *done = true;
     Ok(())
+}
+
+/// One-set styling for the panel: a moss-dark board instead of egui's
+/// neutral grey, rounded buttons and a green selection accent, so the control
+/// panel reads as part of the soil-coloured scene rather than a floating
+/// spreadsheet.
+fn apply_panel_style(ctx: &egui::Context) {
+    // Both themes, so a user-forced light theme keeps the same accent.
+    ctx.all_styles_mut(|style| {
+        let visuals = &mut style.visuals;
+        visuals.panel_fill = egui::Color32::from_rgb(22, 26, 22);
+        visuals.selection.bg_fill = egui::Color32::from_rgb(72, 150, 88);
+        visuals.selection.stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(190, 240, 195));
+        for widget in [
+            &mut visuals.widgets.inactive,
+            &mut visuals.widgets.hovered,
+            &mut visuals.widgets.active,
+            &mut visuals.widgets.open,
+        ] {
+            widget.weak_bg_fill = egui::Color32::from_rgb(34, 40, 34);
+            widget.bg_fill = egui::Color32::from_rgb(30, 36, 30);
+            widget.corner_radius = (4.0).into();
+        }
+        visuals.widgets.hovered.weak_bg_fill = egui::Color32::from_rgb(44, 53, 44);
+        visuals.widgets.active.weak_bg_fill = egui::Color32::from_rgb(56, 68, 56);
+        style.spacing.item_spacing = egui::vec2(10.0, 7.0);
+    });
 }
 
 /// Installs the egui control panel.
@@ -171,6 +200,7 @@ struct PanelState<'w> {
     food: Res<'w, FoodField>,
     time: Res<'w, Time>,
     ui_lang: ResMut<'w, UiLang>,
+    panel: ResMut<'w, PanelMetrics>,
 }
 
 fn control_panel(
@@ -196,6 +226,7 @@ fn control_panel(
         food,
         time,
         mut ui_lang,
+        mut panel,
     } = state;
     // One table per frame; every widget below reads fields from it.
     let s = ui_lang.strings();
@@ -228,7 +259,7 @@ fn control_panel(
         };
     }
 
-    egui::Panel::left("formica_params")
+    let panel_response = egui::Panel::left("formica_params")
         .resizable(true)
         .default_size(330.0)
         .max_size(420.0)
@@ -263,36 +294,44 @@ fn control_panel(
                 run_controls(ui, &mut config, &mut commands, s);
                 ui.separator();
 
-                ui.label(egui::RichText::new(s.presets_section).strong());
-                egui::Grid::new("presets").num_columns(1).show(ui, |ui| {
-                    for preset in Preset::ALL {
-                        if ui
-                            .button(preset.label(s))
-                            .on_hover_text(preset.hint(s))
-                            .clicked()
-                        {
-                            preset.apply(&mut config);
-                            // A preset that changes the colonies or the walls
-                            // changes the world's shape, so give the renderer a
-                            // clean slate rather than leaving half of it stale.
-                            *draft_size = Some((config.width, config.height));
-                        }
-                        ui.end_row();
-                    }
-                });
+                egui::CollapsingHeader::new(egui::RichText::new(s.presets_section).strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        egui::Grid::new("presets").num_columns(1).show(ui, |ui| {
+                            for preset in Preset::ALL {
+                                if ui
+                                    .button(preset.label(s))
+                                    .on_hover_text(preset.hint(s))
+                                    .clicked()
+                                {
+                                    preset.apply(&mut config);
+                                    // A preset that changes the colonies or the
+                                    // walls changes the world's shape, so give
+                                    // the renderer a clean slate rather than
+                                    // leaving half of it stale.
+                                    *draft_size = Some((config.width, config.height));
+                                }
+                                ui.end_row();
+                            }
+                        });
+                    });
                 ui.separator();
 
                 world_controls(ui, &mut config, &mut commands, &mut draft_size, s);
                 ui.separator();
-                scenario_controls(
-                    ui,
-                    &config,
-                    &mut commands,
-                    &food,
-                    s,
-                    &mut scenario_selection,
-                    &mut export_status,
-                );
+                egui::CollapsingHeader::new(egui::RichText::new(s.scenario_section).strong())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        scenario_controls(
+                            ui,
+                            &config,
+                            &mut commands,
+                            &food,
+                            s,
+                            &mut scenario_selection,
+                            &mut export_status,
+                        );
+                    });
                 ui.separator();
                 interact_controls(ui, &mut interaction, s);
                 ui.separator();
@@ -311,6 +350,9 @@ fn control_panel(
                 display_controls(ui, &mut view, s);
             });
         });
+    // The renderer centers the map in the area free of this panel, so it needs
+    // to know how wide the panel currently is.
+    panel.width = panel_response.response.rect.width();
 
     Ok(())
 }
@@ -519,8 +561,14 @@ fn run_controls(
 ) {
     ui.label(egui::RichText::new(s.run_section).strong());
     ui.horizontal(|ui| {
-        ui.checkbox(&mut config.paused, s.pause);
-        ui.separator();
+        // One toggle instead of a checkbox plus label: pressed = paused.
+        if ui
+            .add(egui::Button::new(s.pause).small().selected(config.paused))
+            .on_hover_text(s.pause_hint)
+            .clicked()
+        {
+            config.paused = !config.paused;
+        }
         if ui.button(s.restart).on_hover_text(s.restart_hint).clicked() {
             commands.restart = true;
         }
@@ -646,7 +694,6 @@ fn scenario_controls(
 
     let builtins = Scenario::builtins();
     ui.horizontal(|ui| {
-        ui.label(s.scenario_section);
         let label = selected
             .as_deref()
             .unwrap_or_else(|| match builtins.first() {
@@ -680,16 +727,24 @@ fn scenario_controls(
         .on_hover_text(s.scenario_export_hint)
         .clicked()
     {
-        let path = "formica-scenario.toml";
+        // Exports land in their own folder rather than the repo root, where the
+        // binary happens to run from.
+        let directory = std::path::Path::new("scenarios");
+        let path = directory.join("formica-scenario.toml");
         let scenario = Scenario::capture("exported", "", config, &food.piles);
-        match std::fs::write(path, scenario.to_toml_string()) {
+        match std::fs::create_dir_all(directory)
+            .and_then(|()| std::fs::write(&path, scenario.to_toml_string()))
+        {
             Ok(()) => {
-                *export_status = Some(s.scenario_exported_fmt.replace("{path}", path));
+                *export_status = Some(
+                    s.scenario_exported_fmt
+                        .replace("{path}", &path.display().to_string()),
+                );
             }
             Err(err) => {
                 *export_status = Some(
                     s.scenario_failed_fmt
-                        .replace("{path}", path)
+                        .replace("{path}", &path.display().to_string())
                         .replace("{err}", &err.to_string()),
                 );
             }
@@ -807,44 +862,63 @@ fn colony_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
 }
 
 fn pheromone_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
-    ui.label(egui::RichText::new(s.pheromones_section).strong());
-    ui.add(
-        egui::Slider::new(&mut config.evaporation_rate, 0.001..=0.5)
-            .logarithmic(true)
-            .text(s.evaporation),
-    )
-    .on_hover_text(s.evaporation_hint);
-    ui.add(egui::Slider::new(&mut config.deposit_amount, 0.0..=5.0).text(s.deposit_strength));
-    ui.add(egui::Slider::new(&mut config.deposit_radius, 0..=3).text(s.deposit_kernel_radius));
-    ui.add(egui::Slider::new(&mut config.max_pheromone, 1.0..=100.0).text(s.cell_ceiling));
+    egui::CollapsingHeader::new(egui::RichText::new(s.pheromones_section).strong())
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.add(
+                egui::Slider::new(&mut config.evaporation_rate, 0.001..=0.5)
+                    .logarithmic(true)
+                    .text(s.evaporation),
+            )
+            .on_hover_text(s.evaporation_hint);
+            ui.add(
+                egui::Slider::new(&mut config.deposit_amount, 0.0..=5.0).text(s.deposit_strength),
+            );
+            ui.add(
+                egui::Slider::new(&mut config.deposit_radius, 0..=3).text(s.deposit_kernel_radius),
+            );
+            ui.add(egui::Slider::new(&mut config.max_pheromone, 1.0..=100.0).text(s.cell_ceiling));
+        });
 }
 
 fn ant_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
-    ui.label(egui::RichText::new(s.ants_section).strong());
+    egui::CollapsingHeader::new(egui::RichText::new(s.ants_section).strong())
+        .default_open(false)
+        .show(ui, |ui| {
+            let mut ant_count = config.ant_count as u32;
+            if ui
+                .add(egui::Slider::new(&mut ant_count, 1..=2_000).text(s.ants_per_colony_slider))
+                .on_hover_text(s.ants_per_colony_hint)
+                .changed()
+            {
+                config.ant_count = ant_count as usize;
+            }
 
-    let mut ant_count = config.ant_count as u32;
-    if ui
-        .add(egui::Slider::new(&mut ant_count, 1..=2_000).text(s.ants_per_colony_slider))
-        .on_hover_text(s.ants_per_colony_hint)
-        .changed()
-    {
-        config.ant_count = ant_count as usize;
-    }
-
-    ui.add(egui::Slider::new(&mut config.speed, 0.5..=6.0).text(s.speed));
-    ui.add(egui::Slider::new(&mut config.sensor_distance, 0.0..=12.0).text(s.perception_radius))
-        .on_hover_text(s.perception_radius_hint);
-    ui.add(egui::Slider::new(&mut config.sensor_angle, 0.0..=1.5).text(s.antenna_spread));
-    ui.add(egui::Slider::new(&mut config.sensor_box_radius, 0..=3).text(s.antenna_box_radius));
-    ui.add(egui::Slider::new(&mut config.random_walk_strength, 0.0..=1.5).text(s.random_walk));
-    ui.add(egui::Slider::new(&mut config.sensor_turn_gain, 0.0..=1.5).text(s.trail_turn_gain))
-        .on_hover_text(s.trail_turn_gain_hint);
-    ui.add(
-        egui::Slider::new(&mut config.home_pheromone_weight, 0.0..=1.0).text(s.home_trail_guidance),
-    )
-    .on_hover_text(s.home_trail_guidance_hint);
-    ui.add(egui::Slider::new(&mut config.individuality, 0.0..=1.5).text(s.individuality))
-        .on_hover_text(s.individuality_hint);
+            ui.add(egui::Slider::new(&mut config.speed, 0.5..=6.0).text(s.speed));
+            ui.add(
+                egui::Slider::new(&mut config.sensor_distance, 0.0..=12.0)
+                    .text(s.perception_radius),
+            )
+            .on_hover_text(s.perception_radius_hint);
+            ui.add(egui::Slider::new(&mut config.sensor_angle, 0.0..=1.5).text(s.antenna_spread));
+            ui.add(
+                egui::Slider::new(&mut config.sensor_box_radius, 0..=3).text(s.antenna_box_radius),
+            );
+            ui.add(
+                egui::Slider::new(&mut config.random_walk_strength, 0.0..=1.5).text(s.random_walk),
+            );
+            ui.add(
+                egui::Slider::new(&mut config.sensor_turn_gain, 0.0..=1.5).text(s.trail_turn_gain),
+            )
+            .on_hover_text(s.trail_turn_gain_hint);
+            ui.add(
+                egui::Slider::new(&mut config.home_pheromone_weight, 0.0..=1.0)
+                    .text(s.home_trail_guidance),
+            )
+            .on_hover_text(s.home_trail_guidance_hint);
+            ui.add(egui::Slider::new(&mut config.individuality, 0.0..=1.5).text(s.individuality))
+                .on_hover_text(s.individuality_hint);
+        });
 }
 
 /// Crowding: the knob that stops a bottleneck collapsing the colony onto a
@@ -905,22 +979,44 @@ fn predator_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
 }
 
 fn display_controls(ui: &mut egui::Ui, view: &mut PheromoneView, s: &Strings) {
-    ui.label(egui::RichText::new(s.display_section).strong());
-    ui.add(
-        egui::Slider::new(&mut view.food_gain, 0.02..=2.0)
-            .logarithmic(true)
-            .text(s.food_trail_gain),
-    );
-    ui.add(
-        egui::Slider::new(&mut view.home_gain, 0.0..=1.0)
-            .logarithmic(true)
-            .text(s.home_trail_gain),
-    )
-    .on_hover_text(s.gain_hint);
-    ui.horizontal(|ui| {
-        ui.checkbox(&mut view.show_food, s.food_trail);
-        ui.checkbox(&mut view.show_home, s.home_trail);
-    });
-    ui.small(s.color_legend);
-    ui.small("ants: white / orange    predators: red    walls: grey");
+    egui::CollapsingHeader::new(egui::RichText::new(s.display_section).strong())
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.add(
+                egui::Slider::new(&mut view.food_gain, 0.02..=2.0)
+                    .logarithmic(true)
+                    .text(s.food_trail_gain),
+            );
+            ui.add(
+                egui::Slider::new(&mut view.home_gain, 0.0..=1.0)
+                    .logarithmic(true)
+                    .text(s.home_trail_gain),
+            )
+            .on_hover_text(s.gain_hint);
+            ui.horizontal(|ui| {
+                // Toggle buttons, not checkboxes: pressed = shown.
+                if ui
+                    .add(
+                        egui::Button::new(s.food_trail)
+                            .small()
+                            .selected(view.show_food),
+                    )
+                    .clicked()
+                {
+                    view.show_food = !view.show_food;
+                }
+                if ui
+                    .add(
+                        egui::Button::new(s.home_trail)
+                            .small()
+                            .selected(view.show_home),
+                    )
+                    .clicked()
+                {
+                    view.show_home = !view.show_home;
+                }
+            });
+            ui.small(s.color_legend);
+            ui.small("ants: white / orange    predators: red    walls: grey");
+        });
 }

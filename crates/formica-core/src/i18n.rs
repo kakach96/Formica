@@ -109,6 +109,7 @@ pub struct Strings {
     // ---- window app: run controls ---------------------------------------
     pub run_section: &'static str,
     pub pause: &'static str,
+    pub pause_hint: &'static str,
     pub restart: &'static str,
     pub restart_hint: &'static str,
     pub clear_trails: &'static str,
@@ -360,6 +361,7 @@ pub static EN: Strings = Strings {
 
     run_section: "Run",
     pause: "pause",
+    pause_hint: "toggle: pressed means the simulation is paused",
     restart: "restart",
     restart_hint: "fresh food, empty trails, zeroed statistics",
     clear_trails: "clear trails",
@@ -472,7 +474,7 @@ pub static EN: Strings = Strings {
     scenario_section: "Scenario",
     scenario_builtins_hint: "pick one to load it; the export button saves the current set-up as a TOML file",
     scenario_export: "export scenario",
-    scenario_export_hint: "writes config + food pile placement to formica-scenario.toml",
+    scenario_export_hint: "writes config + food pile placement to scenarios/formica-scenario.toml",
     scenario_exported_fmt: "wrote the current set-up to {path}",
     scenario_failed_fmt: "failed to write {path}: {err}",
 
@@ -638,6 +640,7 @@ pub static ZH: Strings = Strings {
 
     run_section: "运行",
     pause: "暂停",
+    pause_hint: "开关按钮:按下状态即表示已暂停",
     restart: "重新开始",
     restart_hint: "重新生成食物、清空信息素、统计归零",
     clear_trails: "清空信息素",
@@ -750,7 +753,7 @@ pub static ZH: Strings = Strings {
     scenario_section: "场景",
     scenario_builtins_hint: "选择即加载;导出按钮把当前设置存成 TOML 文件",
     scenario_export: "导出场景",
-    scenario_export_hint: "把配置与食物堆位置写入 formica-scenario.toml",
+    scenario_export_hint: "把配置与食物堆位置写入 scenarios/formica-scenario.toml",
     scenario_exported_fmt: "当前设置已写入 {path}",
     scenario_failed_fmt: "写入 {path} 失败:{err}",
 
@@ -980,6 +983,8 @@ mod tests {
                 clear_trails_hint,
                 ticks_per_frame,
                 ticks_per_frame_hint,
+                pause,
+                pause_hint,
                 presets_section,
                 preset_brief,
                 preset_brief_hint,

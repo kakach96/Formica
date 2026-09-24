@@ -32,6 +32,7 @@
 //! read each tick, so there is no apply step and no restart - except for the
 //! map size, which has to reallocate the pheromone texture.
 
+mod icon;
 mod interact;
 mod lang;
 mod paint;
@@ -80,6 +81,9 @@ fn main() {
             Startup,
             (arm_script, configure_view_from_env, seed_obstacles),
         )
+        // The window exists only after winit creates it, so the icon install
+        // retries until the first frame that has one.
+        .add_systems(First, icon::apply_window_icon)
         .add_systems(
             Update,
             (

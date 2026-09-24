@@ -14,3 +14,7 @@ formica-core.workspace = true
 # Only what a 2D simulation viewer needs: no 3D, no audio, no glTF.
 bevy = { workspace = true, default-features = false, features = ["2d", "ui"] }
 bevy_egui.workspace = true
+# Window-icon support only: Bevy exposes no icon API, so we set it ourselves
+# on the winit window. Same 0.30 line as bevy_winit uses, so the two resolve
+# to one package.
+winit = { version = "0.30", default-features = false, features = ["rwh_06"] }

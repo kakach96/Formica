@@ -2,3 +2,6 @@
 **/*.rs.bk
 *.csv
 !docs/*.csv
+# scenario exports from the app's export button
+/scenarios/
+formica-scenario.toml

@@ -24,6 +24,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::camera::ScalingMode;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::window::PrimaryWindow;
 use formica_core::obstacles::Obstacles;
 use formica_core::prelude::*;
 
@@ -72,6 +73,17 @@ pub struct SceneGeometry {
     pub width: usize,
     /// Map height in cells.
     pub height: usize,
+}
+
+/// How wide (in pixels) the egui control panel currently is.
+///
+/// The UI writes it every frame; the camera uses it to center the map inside
+/// the *remaining* free area instead of the whole window, which would push the
+/// map half under the panel.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct PanelMetrics {
+    /// Panel width in pixels.
+    pub width: f32,
 }
 
 /// The one entity drawing the world field.
@@ -247,6 +259,7 @@ impl Plugin for FormicaRenderPlugin {
         app.init_resource::<PheromoneView>()
             .init_resource::<SimCommands>()
             .init_resource::<SceneGeometry>()
+            .init_resource::<PanelMetrics>()
             .add_systems(
                 // Presentation sync runs in `PostUpdate` so it always observes a
                 // fully-ticked world, whatever happens in `Update`.
@@ -255,6 +268,9 @@ impl Plugin for FormicaRenderPlugin {
                     // Creates the camera and the world texture, and rebuilds
                     // both whenever the map is resized.
                     rebuild_scene_if_needed,
+                    // After either of the two above changes, keep the map
+                    // centered in the area right of the control panel.
+                    center_camera,
                     attach_ant_sprites,
                     sync_ant_sprites,
                     attach_predator_sprites,
@@ -374,6 +390,50 @@ fn rebuild_scene_if_needed(world: &mut World) {
     // The letterbox margin around the map matches the soil, not deep space.
     world.insert_resource(ClearColor(Color::srgb(0.035, 0.045, 0.035)));
     info!("scene rebuilt for a {width}x{height} map");
+}
+
+/// Center the map inside the area right of the control panel.
+///
+/// The camera fits the map to the shorter viewport axis, so with a wide window
+/// the leftover width is split evenly around the map - but the panel occupies
+/// the left strip, so even splitting leaves the map off-center in what the
+/// player actually sees. Moving the camera so that the map's center lands on
+/// the free strip's center fixes that. Runs every frame because the panel can
+/// be resized and the window resizes too; it is a couple of arithmetic
+/// operations, cheap enough not to bother with change detection.
+fn center_camera(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    geometry: Res<SceneGeometry>,
+    panel: Res<PanelMetrics>,
+    mut cameras: Query<&mut Transform, With<Camera2d>>,
+) {
+    if geometry.width == 0 || geometry.height == 0 {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Ok(mut transform) = cameras.single_mut() else {
+        return;
+    };
+
+    let (fw, fh) = (geometry.width as f32, geometry.height as f32);
+    // `AutoMin` scale in *pixels per world unit*: the largest scale that still
+    // shows at least `fw + 10 x fh + 10` world units (the same letterbox
+    // margin the rebuild uses).
+    let viewport = Vec2::new(window.width(), window.height());
+    let scale = (viewport.x / (fw + 10.0))
+        .min(viewport.y / (fh + 10.0))
+        .max(f32::EPSILON);
+    // The panel occupies the strip `[0, panel.width]` on screen; in world
+    // units that is `panel.width / scale` wide, and the camera must sit half
+    // that far to the *left* of the map's center for the map's center to land
+    // on the free strip's center.
+    let panel_world = panel.width / scale;
+    let wanted = Vec3::new(fw * 0.5 - panel_world * 0.5, fh * 0.5, 1_000.0);
+    if transform.translation != wanted {
+        transform.translation = wanted;
+    }
 }
 
 /// Give every ant entity a `Sprite` and a `Transform`.
