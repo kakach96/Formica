@@ -283,11 +283,15 @@ fn rebuild_scene_if_needed(world: &mut World) {
         return;
     }
 
-    // Tear down anything positioned in the old coordinate system.
+    // Tear down stale *sprites*: the camera must survive a rebuild, because
+    // bevy_egui attaches its primary context (`EguiContext` +
+    // `PrimaryEguiContext`) to the first camera it ever sees and never hands
+    // one out again. Despawning the camera silently killed the control panel
+    // from that frame on - the bug a map-size change (e.g. `long-haul`)
+    // triggered on every resize.
     let stale: Vec<Entity> = {
         let mut query = world.query_filtered::<Entity, Or<(
             With<PheromoneLayer>,
-            With<Camera2d>,
             With<FoodVisual>,
             With<NestVisual>,
             With<PredatorVisual>,
@@ -319,11 +323,27 @@ fn rebuild_scene_if_needed(world: &mut World) {
         min_width: fw + 10.0,
         min_height: fh + 10.0,
     };
-    world.spawn((
-        Camera2d,
-        Projection::Orthographic(projection),
-        Transform::from_xyz(fw * 0.5, fh * 0.5, 1_000.0),
-    ));
+    // Reuse the existing camera entity (keeping its egui context) and merely
+    // re-point its projection and transform at the new map; spawn a fresh one
+    // only on the very first build.
+    let camera_already_exists = {
+        let mut query = world.query_filtered::<Entity, With<Camera2d>>();
+        query.iter(world).next().is_some()
+    };
+    if camera_already_exists {
+        let mut query = world.query_filtered::<(&mut Projection, &mut Transform), With<Camera2d>>();
+        let Some((mut camera, mut transform)) = query.iter_mut(world).next() else {
+            unreachable!("camera existence was checked above");
+        };
+        *camera = Projection::Orthographic(projection);
+        *transform = Transform::from_xyz(fw * 0.5, fh * 0.5, 1_000.0);
+    } else {
+        world.spawn((
+            Camera2d,
+            Projection::Orthographic(projection),
+            Transform::from_xyz(fw * 0.5, fh * 0.5, 1_000.0),
+        ));
+    }
 
     world.spawn((
         PheromoneLayer,
@@ -688,6 +708,62 @@ mod tests {
         assert!(centre[3] > 0.9, "centre not opaque: {centre:?}");
         assert!(edge[3] < 0.01, "edge not transparent: {edge:?}");
         assert!(centre[0] > edge[0], "heap not brighter at the centre");
+    }
+
+    /// A scene rebuild must keep the same camera entity: bevy_egui attaches
+    /// its primary egui context (`EguiContext` + `PrimaryEguiContext`) to the
+    /// first camera it ever sees and never hands out a second one. Despawning
+    /// the camera during a map resize therefore removed the control panel for
+    /// the rest of the session - triggered by `long-haul`, the only built-in
+    /// scenario that changes the map size.
+    #[test]
+    fn a_scene_rebuild_keeps_the_camera_and_its_egui_context() {
+        use bevy::asset::Assets;
+
+        // Stands in for bevy_egui's `PrimaryEguiContext`: whatever the plugin
+        // attached to the first camera must be found on the camera afterwards.
+        #[derive(Component)]
+        struct EguiContextProxy;
+
+        let mut world = World::new();
+        world.insert_resource(SimConfig::default());
+        world.insert_resource(Assets::<Image>::default());
+        world.insert_resource(SceneGeometry::default());
+
+        rebuild_scene_if_needed(&mut world);
+        let camera = {
+            let mut query = world.query_filtered::<Entity, With<Camera2d>>();
+            query
+                .iter(&world)
+                .next()
+                .expect("first build spawns a camera")
+        };
+        world.entity_mut(camera).insert(EguiContextProxy);
+
+        // Resize the map the way a scenario load does.
+        world.resource_mut::<SimConfig>().width = 512;
+        world.resource_mut::<SimConfig>().height = 512;
+        rebuild_scene_if_needed(&mut world);
+
+        let cameras: Vec<Entity> = {
+            let mut query = world.query_filtered::<Entity, With<Camera2d>>();
+            query.iter(&world).collect()
+        };
+        assert_eq!(cameras, vec![camera], "the rebuild respawned the camera");
+        assert!(
+            world
+                .get_entity(camera)
+                .expect("camera exists")
+                .contains::<EguiContextProxy>(),
+            "the camera's egui context was lost on resize"
+        );
+        assert_eq!(
+            *world.resource::<SceneGeometry>(),
+            SceneGeometry {
+                width: 512,
+                height: 512
+            }
+        );
     }
 
     fn pile(initial: f32) -> FoodPile {
