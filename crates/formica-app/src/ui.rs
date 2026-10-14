@@ -329,6 +329,7 @@ fn control_panel(
                             &config,
                             &mut commands,
                             &food,
+                            &obstacles,
                             s,
                             &mut scenario_selection,
                             &mut export_status,
@@ -694,6 +695,7 @@ fn scenario_controls(
     config: &SimConfig,
     commands: &mut SimCommands,
     food: &FoodField,
+    obstacles: &Obstacles,
     s: &Strings,
     selected: &mut Option<String>,
     export_status: &mut Option<String>,
@@ -758,7 +760,14 @@ fn scenario_controls(
             .on_hover_text(s.scenario_export_hint)
             .clicked()
         {
-            export_current_setup(config, food, import_path.trim(), s, export_status);
+            export_current_setup(
+                config,
+                food,
+                obstacles,
+                import_path.trim(),
+                s,
+                export_status,
+            );
         }
         if ui
             .button(s.scenario_export_preset)
@@ -773,10 +782,16 @@ fn scenario_controls(
     }
 }
 
-/// Write the live config and pile layout to the named TOML file.
+/// Write the live config, pile layout and wall shape to a TOML file.
+///
+/// Hand-painted walls ride along: `capture_from_grid` keys on
+/// `Obstacles::painted` and dumps the brush's shape as explicit rectangles
+/// when the map has been hand-edited, so a saved classic map contains
+/// exactly what was on screen.
 fn export_current_setup(
     config: &SimConfig,
     food: &FoodField,
+    obstacles: &Obstacles,
     raw_path: &str,
     s: &Strings,
     status: &mut Option<String>,
@@ -791,7 +806,7 @@ fn export_current_setup(
     if let Some(directory) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         let _ = std::fs::create_dir_all(directory);
     }
-    let scenario = Scenario::capture("exported", "", config, &food.piles);
+    let scenario = Scenario::capture_from_grid("exported", "", config, &food.piles, obstacles);
     *status = Some(match std::fs::write(&path, scenario.to_toml_string()) {
         Ok(()) => s
             .scenario_exported_fmt

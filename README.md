@@ -211,7 +211,7 @@ A scenario is a shareable TOML file: parameter overrides **plus an explicit map*
 
 `--scenario <name-or-file>` (CLI), the **Scenario** section of the panel (dropdown to load, export/import buttons with a file path box), or `FORMICA_SCENARIO=fortress` for scripted runs. The window also gained a refined look: ants are elongated bodies that rotate with their heading, nests are mounds, food piles are soft discs, walls catch a low sun, and the ground reads as soil instead of a black void.
 
-Exports are complete and feed straight back into imports: **export preset** serialises the built-in shown in the dropdown (walls, food spots, U-wall geometry, seed included), **export current set-up** captures what is on screen plus every pile you dropped, and **import from file** reads any of those TOMLs back through the same control box. The CLI equivalent is `--export-scenario <path>`; re-exporting an imported file is byte-identical, which is the reproducibility contract.
+Exports are complete and feed straight back into imports: **export preset** serialises the built-in shown in the dropdown (walls, food spots, U-wall geometry, seed included), **export current set-up** captures what is on screen plus every pile you dropped **and walls you drew with the brush — erasures included**: a hand-edited map is decomposed into explicit wall rectangles in the file, while a map you never touched keeps the compact preset keyword. **import from file** reads any of those TOMLs back through the same control box. The CLI equivalent is `--export-scenario <path>`; re-exporting an imported file is byte-identical, which is the reproducibility contract.
 
 ### Phase 2 + 3 + 4: interactive window
 

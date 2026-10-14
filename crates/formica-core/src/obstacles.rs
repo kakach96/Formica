@@ -34,6 +34,16 @@ pub struct Obstacles {
     /// only `built` would skip a rebuild whose only change is the scenario
     /// overlay - leaving a fresh world with no walls at all.
     pub custom_stamp: usize,
+    /// True when the player has painted or erased part of the map since the
+    /// last rebuild.
+    ///
+    /// The grid cannot tell which of its cells came from the preset and which
+    /// from the brush, so this flag is the one bit that information survives
+    /// in: it tells [`crate::scenario::Scenario`]-capture to stop trusting the
+    /// preset keyword and dump the whole shape as explicit rectangles instead.
+    /// Resettled on every rebuild (scenario load, resize, preset change),
+    /// because those discard the player's edits along with the shape.
+    pub painted: bool,
     /// Bumped on every mutation, so the renderer and the pheromone scrubber can
     /// skip work when nothing changed.
     pub revision: u64,
@@ -48,6 +58,7 @@ impl Obstacles {
             blocked: vec![false; width * height],
             built: ObstaclePreset::None,
             custom_stamp: 0,
+            painted: false,
             revision: 0,
         }
     }
@@ -68,6 +79,20 @@ impl Obstacles {
     #[inline]
     pub fn is_blocked_at(&self, x: f32, y: f32) -> bool {
         self.is_blocked(x as i32, y as i32)
+    }
+
+    /// Set or clear one cell with the paint brush or eraser.
+    ///
+    /// Marks the map as hand-edited, but only when the write actually
+    /// changes a cell: dragging a brush that is already fully inside (or
+    /// fully outside) existing walls must not silently flip exports into
+    /// the verbose "dump the whole grid" mode.
+    pub fn paint(&mut self, x: i32, y: i32, blocked: bool) {
+        let in_bounds = x >= 0 && y >= 0 && (x as usize) < self.width && (y as usize) < self.height;
+        if in_bounds && self.blocked[y as usize * self.width + x as usize] != blocked {
+            self.painted = true;
+        }
+        self.set(x, y, blocked);
     }
 
     /// Set or clear one cell.
@@ -103,6 +128,7 @@ impl Obstacles {
             self.blocked.fill(false);
             self.revision = self.revision.wrapping_add(1);
         }
+        self.painted = false;
     }
 
     /// Reallocate for a new map size, discarding the shape.
@@ -112,6 +138,7 @@ impl Obstacles {
         self.blocked = vec![false; width * height];
         self.built = ObstaclePreset::None;
         self.custom_stamp = 0;
+        self.painted = false;
         self.revision = self.revision.wrapping_add(1);
     }
 
@@ -182,6 +209,10 @@ impl Obstacles {
         }
         self.custom_stamp = config.custom_walls.len();
         self.built = preset;
+        // A fresh build erases everything the player did to the previous
+        // shape, so the hand-edit flag must go too - otherwise one brush
+        // stroke would mark every future export as hand-drawn forever.
+        self.painted = false;
     }
 
     /// Block every cell covered by an axis-aligned rectangle, in cells.
@@ -195,6 +226,59 @@ impl Obstacles {
                 self.set(x, y, true);
             }
         }
+    }
+
+    /// Decompose every blocked cell into axis-aligned wall rectangles.
+    ///
+    /// The greedy scan grows each rectangle as far right and then as far down
+    /// as it can before moving on; the output is a deterministic function of
+    /// the grid, so an export → import cycle rebuilds the identical map. The
+    /// rectangles use integral cell coordinates, which `stamp_rect`'s
+    /// floor/ceil round trip reproduces exactly. This is what makes
+    /// hand-painted walls exportable: the per-cell grid is the only place the
+    /// brush's work survives, and this turns it back into shareable geometry.
+    pub fn wall_rectangles(&self) -> Vec<crate::config::WallRect> {
+        let mut used = vec![false; self.width * self.height];
+        let mut rects = Vec::new();
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if used[y * self.width + x] || !self.blocked[y * self.width + x] {
+                    continue;
+                }
+                // Grow right along the first row.
+                let mut w = 1;
+                while x + w < self.width {
+                    let j = y * self.width + x + w;
+                    if used[j] || !self.blocked[j] {
+                        break;
+                    }
+                    w += 1;
+                }
+                // Grow down while every row stays fully blocked.
+                let mut h = 1;
+                'rows: while y + h < self.height {
+                    for dx in 0..w {
+                        let j = (y + h) * self.width + x + dx;
+                        if used[j] || !self.blocked[j] {
+                            break 'rows;
+                        }
+                    }
+                    h += 1;
+                }
+                for dy in 0..h {
+                    for dx in 0..w {
+                        used[(y + dy) * self.width + x + dx] = true;
+                    }
+                }
+                rects.push(crate::config::WallRect {
+                    x: x as f32,
+                    y: y as f32,
+                    w: w as f32,
+                    h: h as f32,
+                });
+            }
+        }
+        rects
     }
 
     /// Stamp a U-shaped wall whose **interior contains `interior_center`**.
@@ -303,6 +387,68 @@ mod tests {
         assert!(obstacles.is_blocked(16, 5));
         assert!(obstacles.is_blocked(5, -1));
         assert!(obstacles.is_blocked(5, 16));
+    }
+
+    /// The brush must flag hand edits, but only when a cell actually
+    /// changes - a no-op drag must not flip exports into grid-dump mode.
+    #[test]
+    fn painting_marks_the_map_only_on_a_real_change() {
+        let mut obstacles = Obstacles::new(8, 8);
+        assert!(!obstacles.painted, "a fresh map is not hand-edited");
+        obstacles.paint(1, 1, false); // erasing bare ground: no change
+        assert!(!obstacles.painted, "no-op paint must not flag");
+        obstacles.paint(2, 2, true);
+        assert!(obstacles.painted);
+        // A rebuild discards the player's edits along with the shape.
+        obstacles.clear();
+        assert!(!obstacles.painted, "clear must reset the flag");
+    }
+
+    /// The decomposition must rebuild the *identical* grid it came from -
+    /// this is exactly how hand-painted walls round-trip through a TOML.
+    #[test]
+    fn wall_rectangles_reconstruct_the_exact_grid() {
+        let mut obstacles = Obstacles::new(24, 24);
+        // A solid 3x3 block plus a 1x4 column: the decomposition should see
+        // two rectangles, not twelve single cells.
+        for (x, y) in [
+            (2, 2),
+            (3, 2),
+            (4, 2),
+            (2, 3),
+            (3, 3),
+            (4, 3),
+            (2, 4),
+            (3, 4),
+            (4, 4),
+            (10, 0),
+            (10, 1),
+            (10, 2),
+            (10, 3),
+        ] {
+            obstacles.set(x, y, true);
+        }
+
+        let rects = obstacles.wall_rectangles();
+        assert_eq!(rects.len(), 2, "rectangles: {rects:?}");
+
+        // Rebuild from the rectangles alone, then compare cell for cell.
+        let mut rebuilt = Obstacles::new(24, 24);
+        for rect in &rects {
+            rebuilt.stamp_rect(rect);
+        }
+        for y in 0..24 {
+            for x in 0..24 {
+                assert_eq!(
+                    rebuilt.is_blocked(x, y),
+                    obstacles.is_blocked(x, y),
+                    "cell ({x},{y}) differs after the decomposition round trip"
+                );
+            }
+        }
+
+        // Same grid, same rectangles: the export must be reproducible.
+        assert_eq!(rects, obstacles.wall_rectangles());
     }
 
     #[test]

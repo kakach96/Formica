@@ -305,10 +305,9 @@ impl Scenario {
     ///
     /// The food piles come from the live `FoodField` (player-added and
     /// player-erased piles included), not from the config's ring parameters.
-    /// Custom walls are *not* reconstructed - the obstacle map is a per-cell
-    /// grid, and re-deriving rectangles from it would produce dozens of
-    /// one-cell entries for what used to be one line. Scenarios exported from
-    /// a preset walls map keep those via the `obstacles` field instead.
+    /// Preset walls stay compact: exported via the `obstacles` keyword plus
+    /// its geometry fields. See `capture_from_grid` for the variant that
+    /// also captures hand-drawn walls.
     pub fn capture(
         name: &str,
         description: &str,
@@ -388,6 +387,38 @@ impl Scenario {
         scenario.walls = config.custom_walls.clone();
         if !config.custom_food.is_empty() {
             scenario.food = config.custom_food.clone();
+        }
+        scenario
+    }
+
+    /// Capture the live set-up *with* any hand-painted walls.
+    ///
+    /// The obstacle grid cannot tell which of its blocked cells came from a
+    /// preset and which from the brush, so the decision is keyed on
+    /// [`Obstacles::painted`]:
+    ///
+    /// - untouched map: export via the `obstacles` keyword + geometry, and
+    ///   keep a loaded scenario's wall rectangles - the compact readable form.
+    /// - hand-edited map: decompose the whole grid into explicit rectangles
+    ///   (`Obstacles::wall_rectangles`) and drop the keyword. Stamping those
+    ///   rebuilds exactly the map on screen, erasures included; the keyword
+    ///   would instead re-stamp preset walls the player removed.
+    pub fn capture_from_grid(
+        name: &str,
+        description: &str,
+        config: &SimConfig,
+        piles: &[crate::world::FoodPile],
+        obstacles: &crate::obstacles::Obstacles,
+    ) -> Scenario {
+        let mut scenario = Self::capture(name, description, config, piles);
+        scenario.walls = config.custom_walls.clone();
+        if obstacles.painted {
+            scenario.config.obstacles = Some("none".to_string());
+            scenario.config.block_density = None;
+            scenario.config.u_wall_arm = None;
+            scenario.config.u_wall_gap = None;
+            scenario.config.u_wall_thickness = None;
+            scenario.walls = obstacles.wall_rectangles();
         }
         scenario
     }
@@ -525,6 +556,107 @@ mod tests {
         let mut config = SimConfig::default();
         scenario.apply(&mut config);
         assert_eq!(config.seed, 424_242);
+    }
+
+    /// Hand-painted walls must survive export → import cell for cell.
+    ///
+    /// The live world starts from the default map, then brush strokes are
+    /// painted and erased through the paint path - the export can neither
+    /// trust the keyword nor hand-count the cells. Erasing part of an
+    /// existing wall is the sharpest case: keyword + geometry would rebuild
+    /// what was removed.
+    #[test]
+    fn painted_walls_survive_an_export_round_trip() {
+        let mut config = SimConfig::default();
+        // A preset with real geometry first: part of it is erased below, so
+        // the export must stop describing the U by keyword.
+        config.obstacle_preset = ObstaclePreset::UWall {
+            arm: 14.0,
+            gap: 14.0,
+            thickness: 3.0,
+        };
+        let mut app = headless_app(config.clone());
+        run_ticks(&mut app, 1);
+        let original = app
+            .world()
+            .resource::<crate::obstacles::Obstacles>()
+            .clone();
+        let piles = app.world().resource::<FoodField>().piles.clone();
+
+        let mut edited = original.clone();
+        edited.paint(120, 120, true);
+        edited.paint(121, 121, true);
+        // Erase a few existing wall cells found by a deterministic scan -
+        // the keyword-plus-geometry import would rebuild exactly these.
+        let mut erasable = Vec::new();
+        'scan: for y in 0..config.height as i32 {
+            for x in 0..config.width as i32 {
+                let is_new_stroke = (x, y) == (120, 120) || (x, y) == (121, 121);
+                if edited.is_blocked(x, y) && !is_new_stroke {
+                    erasable.push((x, y));
+                    if erasable.len() == 4 {
+                        break 'scan;
+                    }
+                }
+            }
+        }
+        for (x, y) in &erasable {
+            edited.paint(*x, *y, false);
+        }
+        assert!(!erasable.is_empty(), "nothing of the U was in that region");
+        assert!(edited.painted, "the edits must mark the grid hand-drawn");
+
+        let scenario = Scenario::capture_from_grid("drawn", "", &config, &piles, &edited);
+        assert_eq!(
+            scenario.config.obstacles.as_deref(),
+            Some("none"),
+            "a hand-edited export must not keep the preset keyword"
+        );
+        assert!(!scenario.walls.is_empty(), "no rectangles captured");
+
+        // Rebuild through the normal import path and compare the whole grid.
+        let text = scenario.to_toml_string();
+        let mut rebuilt_config = SimConfig::default();
+        Scenario::parse_toml(&text)
+            .expect("reparse")
+            .apply(&mut rebuilt_config);
+        let mut rebuilt_app = headless_app(rebuilt_config);
+        run_ticks(&mut rebuilt_app, 1);
+        let rebuilt = rebuilt_app
+            .world()
+            .resource::<crate::obstacles::Obstacles>();
+        assert_eq!(rebuilt.count(), edited.count(), "wall cell count changed");
+        for y in 0..config.height as i32 {
+            for x in 0..config.width as i32 {
+                assert_eq!(
+                    rebuilt.is_blocked(x, y),
+                    edited.is_blocked(x, y),
+                    "cell ({x},{y}) differs after the painted-wall round trip"
+                );
+            }
+        }
+    }
+
+    /// A map that was never hand-edited keeps exporting the compact form:
+    /// the preset keyword plus geometry, scenario wall rectangles separate.
+    #[test]
+    fn an_unpainted_export_keeps_the_compact_form() {
+        let mut config = SimConfig::default();
+        config.obstacle_preset = ObstaclePreset::RandomBlocks { density: 0.3 };
+        config.custom_walls = vec![crate::config::WallRect {
+            x: 10.0,
+            y: 10.0,
+            w: 4.0,
+            h: 8.0,
+        }];
+        let mut obstacles = crate::obstacles::Obstacles::new(config.width, config.height);
+        obstacles.apply_preset(config.obstacle_preset, &config, &[(50.0, 50.0)], &[]);
+        assert!(!obstacles.painted);
+
+        let scenario = Scenario::capture_from_grid("rubble", "", &config, &[], &obstacles);
+        assert_eq!(scenario.config.obstacles.as_deref(), Some("blocks"));
+        assert_eq!(scenario.config.block_density, Some(0.3));
+        assert_eq!(scenario.walls, config.custom_walls);
     }
 
     /// Built-ins must have unique, non-empty names - the panel dropdown and

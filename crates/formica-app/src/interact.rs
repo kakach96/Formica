@@ -173,7 +173,10 @@ fn stamp(obstacles: &mut Obstacles, center: Vec2, radius: f32, blocked: bool) {
             let dx = x as f32 + 0.5 - center.x;
             let dy = y as f32 + 0.5 - center.y;
             if dx * dx + dy * dy <= r * r {
-                obstacles.set(x, y, blocked);
+                // The brush path, not the rebuild path: painting must mark
+                // the map hand-edited so a later export dumps the drawn
+                // shape instead of trusting the preset keyword.
+                obstacles.paint(x, y, blocked);
             }
         }
     }
