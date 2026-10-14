@@ -20,7 +20,7 @@ use crate::config::{FoodSpot, ObstaclePreset, SimConfig, WallRect};
 /// Every field is optional: `None` keeps the default (or the CLI/panel value),
 /// `Some` wins. This shape is what lets a scenario file be three lines long
 /// and still produce a full configuration.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ScenarioOverrides {
     /// Map width in cells.
     pub width: Option<usize>,
@@ -72,10 +72,21 @@ pub struct ScenarioOverrides {
     pub predator_catch: Option<f32>,
     /// How returning ants navigate home: `path`, `wall` or `flow`.
     pub homing: Option<String>,
+    /// RNG seed. Present in *exported* scenarios so a file reproduces the
+    /// run bit for bit; a handwritten scenario may omit it and let `--seed`
+    /// or the app's seed box decide. The CLI's `--seed` flag still wins over
+    /// a scenario's seed, because flags apply in order after the scenario.
+    pub seed: Option<u64>,
+    /// U-wall arm length, applied only when `obstacles` is `u-wall`.
+    pub u_wall_arm: Option<f32>,
+    /// U-wall opening width, applied only when `obstacles` is `u-wall`.
+    pub u_wall_gap: Option<f32>,
+    /// U-wall thickness, applied only when `obstacles` is `u-wall`.
+    pub u_wall_thickness: Option<f32>,
 }
 
 /// One shareable scenario: overrides plus an explicit map.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Scenario {
     /// Display name.
     #[serde(default)]
@@ -261,10 +272,12 @@ impl Scenario {
             predator_count = predators,
             predator_speed = predator_speed,
             predator_sense = predator_sense,
+            predator_catch_radius = predator_catch,
+            seed = seed,
         );
         if let Some(raw) = &o.obstacles {
             if let Some(preset) = parse_obstacle(raw) {
-                config.obstacle_preset = preset;
+                config.obstacle_preset = merge_obstacle_geometry(preset, o);
             }
         }
         if let Some(raw) = &o.homing {
@@ -302,6 +315,19 @@ impl Scenario {
         config: &SimConfig,
         piles: &[crate::world::FoodPile],
     ) -> Scenario {
+        // Presets carry their geometry as variant data; exported scenarios
+        // write it back so the import rebuilds the *same* wall, not a
+        // default-sized one.
+        let (u_wall_arm, u_wall_gap, u_wall_thickness, block_density) =
+            match &config.obstacle_preset {
+                ObstaclePreset::UWall {
+                    arm,
+                    gap,
+                    thickness,
+                } => (Some(*arm), Some(*gap), Some(*thickness), None),
+                ObstaclePreset::RandomBlocks { density } => (None, None, None, Some(*density)),
+                ObstaclePreset::None => (None, None, None, None),
+            };
         Scenario {
             name: name.to_string(),
             description: description.to_string(),
@@ -325,11 +351,16 @@ impl Scenario {
                 food_per_pile: Some(config.food_per_pile),
                 pile_radius: Some(config.food_pile_radius),
                 obstacles: Some(preset_keyword(&config.obstacle_preset).to_string()),
-                homing: Some(config.homing_mode.keyword().to_string()),
+                block_density,
+                u_wall_arm,
+                u_wall_gap,
+                u_wall_thickness,
                 predators: Some(config.predator_count),
                 predator_speed: Some(config.predator_speed),
                 predator_sense: Some(config.predator_sense),
-                ..Default::default()
+                predator_catch: Some(config.predator_catch_radius),
+                homing: Some(config.homing_mode.keyword().to_string()),
+                seed: Some(config.seed),
             },
             walls: Vec::new(),
             food: piles
@@ -342,6 +373,23 @@ impl Scenario {
                 })
                 .collect(),
         }
+    }
+
+    /// Capture a scenario straight from a `SimConfig`, with no live world.
+    ///
+    /// This is the CLI export path (`--export-scenario`): walls come from
+    /// `custom_walls` and food from `custom_food`, which is where a loaded
+    /// scenario's map lands - so re-exporting a load reproduces the preset's
+    /// shape, not just its keyword. Exported runs include the seed, which is
+    /// what lets `--export-scenario` + `--scenario <file>` reproduce the
+    /// numbers bit for bit.
+    pub fn from_config(name: &str, description: &str, config: &SimConfig) -> Scenario {
+        let mut scenario = Self::capture(name, description, config, &[]);
+        scenario.walls = config.custom_walls.clone();
+        if !config.custom_food.is_empty() {
+            scenario.food = config.custom_food.clone();
+        }
+        scenario
     }
 }
 
@@ -366,6 +414,25 @@ fn parse_obstacle(raw: &str) -> Option<ObstaclePreset> {
         }),
         "blocks" | "random" | "rubble" => Some(ObstaclePreset::RandomBlocks { density: 0.15 }),
         _ => None,
+    }
+}
+
+/// Layer a scenario's explicit U-wall geometry onto a parsed preset.
+///
+/// The keyword alone gives only the shape; an exported scenario carries the
+/// real numbers (`u_wall_arm` and friends) so the imported wall is the size
+/// it was when captured, not the default size.
+fn merge_obstacle_geometry(preset: ObstaclePreset, o: &ScenarioOverrides) -> ObstaclePreset {
+    match preset {
+        ObstaclePreset::UWall { .. } => ObstaclePreset::UWall {
+            arm: o.u_wall_arm.unwrap_or(14.0),
+            gap: o.u_wall_gap.unwrap_or(14.0),
+            thickness: o.u_wall_thickness.unwrap_or(3.0),
+        },
+        ObstaclePreset::RandomBlocks { .. } => ObstaclePreset::RandomBlocks {
+            density: o.block_density.unwrap_or(0.15),
+        },
+        ObstaclePreset::None => preset,
     }
 }
 
@@ -409,6 +476,55 @@ mod tests {
         assert_eq!(reparsed.food.len(), scenario.food.len());
         assert_eq!(reparsed.food[0].x, scenario.food[0].x);
         assert_eq!(reparsed.config.obstacles, scenario.config.obstacles);
+    }
+
+    /// Every built-in must survive an export → parse → apply cycle exactly:
+    /// the exported file is the shareable form of the preset, so losing a
+    /// wall rectangle or a seed on the way out would quietly change someone
+    /// else's simulation.
+    #[test]
+    fn every_builtin_round_trips_through_toml_unchanged() {
+        for name in Scenario::builtin_names() {
+            let scenario = Scenario::builtin(&name).expect("builtin exists");
+            let text = scenario.to_toml_string();
+            let reparsed = Scenario::parse_toml(&text)
+                .unwrap_or_else(|err| panic!("{name} did not reparse: {err}"));
+            assert_eq!(reparsed, scenario, "{name} changed on the TOML round trip");
+        }
+    }
+
+    /// `--export-scenario` must preserve shape geometry: a U-wall exported
+    /// with arm 20 rebuilds with arm 20, not the parse default of 14.
+    #[test]
+    fn export_keeps_the_uwall_geometry() {
+        let mut config = SimConfig::default();
+        config.obstacle_preset = ObstaclePreset::UWall {
+            arm: 20.0,
+            gap: 12.0,
+            thickness: 5.0,
+        };
+        let scenario = Scenario::from_config("walled", "", &config);
+        let text = scenario.to_toml_string();
+        assert!(text.contains("u_wall_arm = 20"), "text: {text}");
+
+        let mut rebuilt = SimConfig::default();
+        Scenario::parse_toml(&text)
+            .expect("reparse")
+            .apply(&mut rebuilt);
+        assert_eq!(rebuilt.obstacle_preset, config.obstacle_preset);
+        assert_eq!(rebuilt.seed, config.seed);
+    }
+
+    /// A scenario may carry a seed; applying one must move the config onto
+    /// it, and an exported set-up (which always carries its own seed) must
+    /// land on the identical config it came from.
+    #[test]
+    fn a_scenario_can_set_the_seed() {
+        let scenario =
+            Scenario::parse_toml("name = \"seeded\"\n\n[config]\nseed = 424242\n").expect("parse");
+        let mut config = SimConfig::default();
+        scenario.apply(&mut config);
+        assert_eq!(config.seed, 424_242);
     }
 
     /// Built-ins must have unique, non-empty names - the panel dropdown and

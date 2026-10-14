@@ -201,6 +201,10 @@ cargo run -p formica-headless --release -- --colonies 2 --ants 250
 cargo run -p formica-headless --release -- --scenario labyrinth
 cargo run -p formica-headless --release -- --scenario my-run.toml
 
+# 分享一套设置:把内置场景(或你在其上叠加参数后的版本)完整写成 TOML——
+# 墙体、食物、几何、种子全部包含在内
+cargo run -p formica-headless --release -- --scenario labyrinth --export-scenario share-labyrinth.toml
+
 # 全部选项
 cargo run -p formica-headless --release -- --help
 ```
@@ -220,7 +224,9 @@ cargo run -p formica-headless --release -- --help
 | `long-haul` | 512×512 地图、八个食物堆、一路长队 |
 | `maze-run` | 手工走廊 + 远端一场固定盛宴 |
 
-加载方式:命令行 `--scenario <名称或文件>`、窗口面板的**「场景」**区(下拉加载、「导出场景」按钮写出 `scenarios/formica-scenario.toml`)、或脚本化运行设 `FORMICA_SCENARIO=fortress`。窗口版渲染同时做了精细化:蚂蚁按朝向旋转、蚁巢是土丘、食物是软圆盘、墙面有受光面与阴影、地面呈现土壤色调。
+加载方式:命令行 `--scenario <名称或文件>`、窗口面板的**「场景」**区(下拉加载、带路径框的导出/导入按钮)、或脚本化运行设 `FORMICA_SCENARIO=fortress`。窗口版渲染同时做了精细化:蚂蚁按朝向旋转、蚁巢是土丘、食物是软圆盘、墙面有受光面与阴影、地面呈现土壤色调。
+
+导出是完整的,并可原路导入:**导出预设场景**把下拉中选中的内置场景完整序列化(墙体、食物点、U 形墙几何、种子都在内),**导出当前设置**捕捉屏幕上的实时状态和手工放置的每一堆食物,**从文件导入**把任一 TOML 读回并重建世界。命令行对应 `--export-scenario <路径>`;把导入的文件再次导出,结果逐字节相同——这就是可复现性契约。
 ### Phase 2 + 3 + 4：可交互窗口
 
 ```bash
@@ -243,7 +249,7 @@ cargo run -p formica-app --release
 | 运回曲线 | 实时绘制的累积曲线（**两窝时画两条**）+ S 评分 |
 | Run | 暂停、restart、**清空信息素**、ticks/frame 快进 |
 | Presets | 七组可复现的对比参数 |
-| Scenario | **内置场景加载**,导出当前设置为 TOML |
+| Scenario | **内置场景加载**,导出当前设置/所选预设为 TOML,**从文件导入** |
 | World & food | **地图尺寸（拖完点 apply size）**、食物堆数量 / 总量 / 半径 |
 | Mouse | 地图编辑开关、模式、刷子半径、新食物堆含多少食物 |
 | Obstacles | 空地 / U 形墙 / 随机方块；U 形墙尺寸、方块密度 |

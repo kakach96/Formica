@@ -208,10 +208,12 @@ fn control_panel(
     state: PanelState,
     mut smoothed_fps: Local<f32>,
     mut draft_size: Local<Option<(usize, usize)>>,
-    // Result of the last "export scenario" press, cleared on the next click.
+    // Result of the last scenario export/import press, cleared on load.
     mut export_status: Local<Option<String>>,
     // The currently selected built-in scenario name, shown in the dropdown.
     mut scenario_selection: Local<Option<String>>,
+    // The export/import file path; defaults to the repo-root scenarios folder.
+    mut scenario_path: Local<String>,
 ) -> Result {
     // Destructured by value so each binding is an owned `Res`/`ResMut`, which
     // coerces to `&mut T` at every call site below.
@@ -330,6 +332,7 @@ fn control_panel(
                             s,
                             &mut scenario_selection,
                             &mut export_status,
+                            &mut scenario_path,
                         );
                     });
                 ui.separator();
@@ -677,12 +680,15 @@ fn world_controls(
         });
 }
 
-/// Scenario loading and export.
+/// Scenario loading, export and import.
 ///
 /// Loading goes through `SimCommands` rather than mutating the config here:
 /// the apply needs `&mut World` (the reset respawns ants), so the request
-/// rides the same command path as the restart button. Export needs only
-/// readable data - the config plus the live pile list - so it happens here.
+/// rides the same command path as the restart button. Import is just a load
+/// from a file - it goes through the identical command path, which is why an
+/// imported scenario and a picked built-in end up in exactly the same world.
+/// Export needs only readable data - the config plus the live pile list -
+/// so it happens here.
 fn scenario_controls(
     ui: &mut egui::Ui,
     config: &SimConfig,
@@ -691,6 +697,7 @@ fn scenario_controls(
     s: &Strings,
     selected: &mut Option<String>,
     export_status: &mut Option<String>,
+    import_path: &mut String,
 ) {
     ui.label(egui::RichText::new(s.scenario_section).strong());
 
@@ -724,36 +731,160 @@ fn scenario_controls(
     });
     ui.small(s.scenario_builtins_hint);
 
-    if ui
-        .button(s.scenario_export)
-        .on_hover_text(s.scenario_export_hint)
-        .clicked()
-    {
-        // Exports land in their own folder rather than the repo root, where the
-        // binary happens to run from.
-        let directory = std::path::Path::new("scenarios");
-        let path = directory.join("formica-scenario.toml");
-        let scenario = Scenario::capture("exported", "", config, &food.piles);
-        match std::fs::create_dir_all(directory)
-            .and_then(|()| std::fs::write(&path, scenario.to_toml_string()))
-        {
-            Ok(()) => {
-                *export_status = Some(
-                    s.scenario_exported_fmt
-                        .replace("{path}", &path.display().to_string()),
-                );
-            }
-            Err(err) => {
-                *export_status = Some(
-                    s.scenario_failed_fmt
-                        .replace("{path}", &path.display().to_string())
-                        .replace("{err}", &err.to_string()),
-                );
-            }
-        }
+    // The export/import path box doubles for both directions: name a file,
+    // export writes it, import reads it. That round trip is the whole point -
+    // an exported set-up is reproducible by typing the same path.
+    if import_path.is_empty() {
+        *import_path = "scenarios/formica-scenario.toml".to_string();
     }
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::TextEdit::singleline(import_path)
+                .desired_width(200.0)
+                .hint_text("scenarios/….toml"),
+        );
+        if ui
+            .button(s.scenario_import)
+            .on_hover_text(s.scenario_import_hint)
+            .clicked()
+        {
+            import_scenario(commands, import_path.trim(), s, export_status);
+        }
+    });
+
+    ui.horizontal(|ui| {
+        if ui
+            .button(s.scenario_export)
+            .on_hover_text(s.scenario_export_hint)
+            .clicked()
+        {
+            export_current_setup(config, food, import_path.trim(), s, export_status);
+        }
+        if ui
+            .button(s.scenario_export_preset)
+            .on_hover_text(s.scenario_export_preset_hint)
+            .clicked()
+        {
+            export_selected_preset(selected, s, export_status);
+        }
+    });
     if let Some(status) = export_status {
         ui.small(status.clone());
+    }
+}
+
+/// Write the live config and pile layout to the named TOML file.
+fn export_current_setup(
+    config: &SimConfig,
+    food: &FoodField,
+    raw_path: &str,
+    s: &Strings,
+    status: &mut Option<String>,
+) {
+    let Some(path) = with_toml_extension(raw_path) else {
+        *status = Some(s.scenario_no_path.to_string());
+        return;
+    };
+    let path = std::path::PathBuf::from(path);
+    // Exports land in their own folder rather than the repo root, where the
+    // binary happens to run from.
+    if let Some(directory) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        let _ = std::fs::create_dir_all(directory);
+    }
+    let scenario = Scenario::capture("exported", "", config, &food.piles);
+    *status = Some(match std::fs::write(&path, scenario.to_toml_string()) {
+        Ok(()) => s
+            .scenario_exported_fmt
+            .replace("{path}", &path.display().to_string()),
+        Err(err) => s
+            .scenario_failed_fmt
+            .replace("{path}", &path.display().to_string())
+            .replace("{err}", &err.to_string()),
+    });
+}
+
+/// Write the built-in currently shown in the dropdown as a complete TOML.
+///
+/// Unlike the live capture above this serialises the preset itself, so its
+/// hand-written walls and food spots survive the round trip byte for byte -
+/// that is the "share this exact map" path.
+fn export_selected_preset(selected: &Option<String>, s: &Strings, status: &mut Option<String>) {
+    let name = selected.as_deref().unwrap_or("");
+    match Scenario::builtin(name) {
+        Some(preset) => {
+            let directory = std::path::Path::new("scenarios");
+            let path = directory.join(format!("{}.toml", preset.name));
+            *status = Some(
+                match std::fs::create_dir_all(directory)
+                    .and_then(|()| std::fs::write(&path, preset.to_toml_string()))
+                {
+                    Ok(()) => s
+                        .scenario_preset_exported_fmt
+                        .replace("{name}", &preset.name)
+                        .replace("{path}", &path.display().to_string()),
+                    Err(err) => s
+                        .scenario_failed_fmt
+                        .replace("{path}", &path.display().to_string())
+                        .replace("{err}", &err.to_string()),
+                },
+            );
+        }
+        None => {
+            let list = Scenario::builtin_names().join(", ");
+            *status = Some(
+                s.err_unknown_scenario
+                    .replace("{name}", name)
+                    .replace("{list}", &list),
+            );
+        }
+    }
+}
+
+/// Read a scenario TOML from disk and queue a world rebuild.
+fn import_scenario(
+    commands: &mut SimCommands,
+    raw_path: &str,
+    s: &Strings,
+    status: &mut Option<String>,
+) {
+    let attempt = with_toml_extension(raw_path)
+        .ok_or_else(|| s.scenario_no_path.to_string())
+        .and_then(|path| {
+            std::fs::read_to_string(&path)
+                .map_err(|err| err.to_string())
+                .and_then(|text| Scenario::parse_toml(&text).map(|scenario| (path, scenario)))
+        });
+    match attempt {
+        Ok((path, scenario)) => {
+            *status = Some(
+                s.scenario_imported_fmt
+                    .replace("{path}", &path)
+                    .replace("{name}", &scenario.name),
+            );
+            commands.load_scenario = Some(scenario);
+        }
+        Err(err) => {
+            *status = Some(
+                s.scenario_import_failed_fmt
+                    .replace("{path}", raw_path)
+                    .replace("{err}", &err),
+            );
+        }
+    }
+}
+
+/// Force the typed path to end in `.toml`, so the export can be read back by
+/// the import box and by the CLI's `--scenario` (both resolve files by that
+/// extension before falling back to built-in names).
+fn with_toml_extension(path: &str) -> Option<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.to_ascii_lowercase().ends_with(".toml") {
+        Some(trimmed.to_string())
+    } else {
+        Some(format!("{trimmed}.toml"))
     }
 }
 

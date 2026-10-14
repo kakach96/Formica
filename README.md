@@ -185,6 +185,10 @@ cargo run -p formica-headless --release -- --colonies 2 --ants 250
 cargo run -p formica-headless --release -- --scenario labyrinth
 cargo run -p formica-headless --release -- --scenario my-run.toml
 
+# Share a set-up: write any built-in (or your flag-overridden variant of it)
+# to a complete TOML — walls, food, geometry, seed all included
+cargo run -p formica-headless --release -- --scenario labyrinth --export-scenario share-labyrinth.toml
+
 # All options
 cargo run -p formica-headless --release -- --help
 ```
@@ -205,7 +209,9 @@ A scenario is a shareable TOML file: parameter overrides **plus an explicit map*
 | `long-haul` | 512×512 map, eight piles, one long caravan |
 | `maze-run` | hand-built corridors and a fixed feast at the far end |
 
-`--scenario <name-or-file>` (CLI), the **Scenario** section of the panel (dropdown to load, an export button that writes `scenarios/formica-scenario.toml`), or `FORMICA_SCENARIO=fortress` for scripted runs. The window also gained a refined look: ants are elongated bodies that rotate with their heading, nests are mounds, food piles are soft discs, walls catch a low sun, and the ground reads as soil instead of a black void.
+`--scenario <name-or-file>` (CLI), the **Scenario** section of the panel (dropdown to load, export/import buttons with a file path box), or `FORMICA_SCENARIO=fortress` for scripted runs. The window also gained a refined look: ants are elongated bodies that rotate with their heading, nests are mounds, food piles are soft discs, walls catch a low sun, and the ground reads as soil instead of a black void.
+
+Exports are complete and feed straight back into imports: **export preset** serialises the built-in shown in the dropdown (walls, food spots, U-wall geometry, seed included), **export current set-up** captures what is on screen plus every pile you dropped, and **import from file** reads any of those TOMLs back through the same control box. The CLI equivalent is `--export-scenario <path>`; re-exporting an imported file is byte-identical, which is the reproducibility contract.
 
 ### Phase 2 + 3 + 4: interactive window
 
@@ -229,7 +235,7 @@ Left panel:
 | Delivery curve | live cumulative curve (**two lines with two colonies**) + S-score |
 | Run | pause, restart, **clear trails**, ticks/frame fast-forward |
 | Presets | seven reproducible comparison parameter sets |
-| Scenario | **built-in scenarios (dropdown to load)**, export current set-up as TOML |
+| Scenario | **built-in scenarios (dropdown to load)**, export current set-up / selected preset as TOML, **import from file** |
 | World & food | **map size (drag, then press apply size)**, pile count / total / radius |
 | Mouse | map-editing switch, mode, brush radius, food per new pile |
 | Obstacles | open field / U-shaped wall / scattered blocks; sizes and density |

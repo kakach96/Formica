@@ -258,6 +258,22 @@ pub struct Strings {
     pub scenario_exported_fmt: &'static str,
     /// "failed to write {path}: {err}"
     pub scenario_failed_fmt: &'static str,
+    /// Preset export button label.
+    pub scenario_export_preset: &'static str,
+    /// Preset export button tooltip.
+    pub scenario_export_preset_hint: &'static str,
+    /// "wrote preset '{name}' to {path}"
+    pub scenario_preset_exported_fmt: &'static str,
+    /// Import button label.
+    pub scenario_import: &'static str,
+    /// Import button tooltip.
+    pub scenario_import_hint: &'static str,
+    /// "loaded scenario '{name}' from {path} - the world was rebuilt"
+    pub scenario_imported_fmt: &'static str,
+    /// "failed to load {path}: {err}"
+    pub scenario_import_failed_fmt: &'static str,
+    /// Status when the import/export path box is empty.
+    pub scenario_no_path: &'static str,
 
     // ---- headless: CLI help -----------------------------------------------------------------
     pub help_text: &'static str,
@@ -495,11 +511,19 @@ pub static EN: Strings = Strings {
     language: "language",
 
     scenario_section: "Scenario",
-    scenario_builtins_hint: "pick one to load it; the export button saves the current set-up as a TOML file",
-    scenario_export: "export scenario",
-    scenario_export_hint: "writes config + food pile placement to scenarios/formica-scenario.toml",
+    scenario_builtins_hint: "pick one to load it; export saves a set-up as a TOML file, import loads one back",
+    scenario_export: "export current set-up",
+    scenario_export_hint: "writes config + food pile placement to the file named in the box below",
     scenario_exported_fmt: "wrote the current set-up to {path}",
     scenario_failed_fmt: "failed to write {path}: {err}",
+    scenario_export_preset: "export preset",
+    scenario_export_preset_hint: "writes the built-in currently selected in the dropdown, walls and food included",
+    scenario_preset_exported_fmt: "wrote preset '{name}' to {path}",
+    scenario_import: "import from file",
+    scenario_import_hint: "loads a scenario TOML (an exported file, for example) and rebuilds the world",
+    scenario_imported_fmt: "loaded scenario '{name}' from {path} - the world was rebuilt",
+    scenario_import_failed_fmt: "failed to load {path}: {err}",
+    scenario_no_path: "type a .toml file path in the box first",
 
     help_text: "\
 Formica - ant colony foraging simulation (headless)
@@ -566,6 +590,8 @@ OUTPUT
 SCENARIOS
     --scenario S          Built-in name or a TOML file; the rest of the
                           command line still applies on top
+    --export-scenario PATH  Write the parsed set-up (a loaded scenario's
+                          walls and food included) to a TOML and exit
 
 EXPERIMENTS
     --sweep-evaporation L  Comma-separated values; runs each and compares
@@ -789,11 +815,19 @@ pub static ZH: Strings = Strings {
     language: "语言",
 
     scenario_section: "场景",
-    scenario_builtins_hint: "选择即加载;导出按钮把当前设置存成 TOML 文件",
-    scenario_export: "导出场景",
-    scenario_export_hint: "把配置与食物堆位置写入 scenarios/formica-scenario.toml",
+    scenario_builtins_hint: "选择即加载;导出把设置存成 TOML 文件,导入则把文件加载回来",
+    scenario_export: "导出当前设置",
+    scenario_export_hint: "把配置与食物堆位置写入下方路径框指定的文件",
     scenario_exported_fmt: "当前设置已写入 {path}",
     scenario_failed_fmt: "写入 {path} 失败:{err}",
+    scenario_export_preset: "导出预设场景",
+    scenario_export_preset_hint: "把下拉中选中的内置场景完整导出(含墙体与食物)",
+    scenario_preset_exported_fmt: "预设 {name} 已写入 {path}",
+    scenario_import: "从文件导入",
+    scenario_import_hint: "读取一个场景 TOML(例如之前导出的)并重建世界",
+    scenario_imported_fmt: "已从 {path} 载入场景 {name},世界已重建",
+    scenario_import_failed_fmt: "载入 {path} 失败:{err}",
+    scenario_no_path: "请先在路径框里填一个 .toml 文件路径",
 
     help_text: "\
 Formica - 蚁群觅食模拟(无渲染命令行)
@@ -860,6 +894,8 @@ Formica - 蚁群觅食模拟(无渲染命令行)
 场景
     --scenario S          内置场景名或 TOML 文件;其余命令行参数仍然
                           叠加在其上
+    --export-scenario PATH  把解析后的设置(含已加载场景的墙体与食物)
+                          写成 TOML 并退出
 
 实验
     --sweep-evaporation L  逗号分隔的值;逐个运行并对比
@@ -1193,6 +1229,14 @@ mod tests {
                 scenario_export_hint,
                 scenario_exported_fmt,
                 scenario_failed_fmt,
+                scenario_export_preset,
+                scenario_export_preset_hint,
+                scenario_preset_exported_fmt,
+                scenario_import,
+                scenario_import_hint,
+                scenario_imported_fmt,
+                scenario_import_failed_fmt,
+                scenario_no_path,
                 err_unknown_scenario,
                 err_unknown_homing,
                 report_homing,

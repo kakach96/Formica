@@ -56,6 +56,10 @@ fn main() -> ExitCode {
         }
     };
 
+    if let Some(path) = &opts.export_scenario {
+        return export_scenario_file(&opts, path);
+    }
+
     if !opts.evaporation_sweep.is_empty()
         || !opts.random_walk_sweep.is_empty()
         || !opts.predator_sweep.is_empty()
@@ -111,6 +115,9 @@ struct Options {
     ticks: u64,
     report_every: u64,
     csv: Option<String>,
+    /// `--export-scenario <path>`: write the parsed set-up as a shareable
+    /// TOML, then exit without simulating.
+    export_scenario: Option<String>,
     quiet: bool,
     chart_width: usize,
     chart_height: usize,
@@ -129,6 +136,7 @@ impl Default for Options {
             ticks: 5000,
             report_every: 500,
             csv: None,
+            export_scenario: None,
             quiet: false,
             chart_width: 78,
             chart_height: 16,
@@ -266,6 +274,9 @@ impl Options {
                 "--sample-interval" => opts.config.sample_interval = number(args, &mut i, flag, s)?,
                 "--report-every" => opts.report_every = number(args, &mut i, flag, s)?,
                 "--csv" => opts.csv = Some(value(args, &mut i, flag, s)?.to_string()),
+                "--export-scenario" => {
+                    opts.export_scenario = Some(value(args, &mut i, flag, s)?.to_string())
+                }
                 "--quiet" => opts.quiet = true,
                 "--lang" => {
                     let raw = value(args, &mut i, flag, s)?;
@@ -328,6 +339,40 @@ fn load_scenario(name_or_path: &str) -> Option<Scenario> {
         return Scenario::parse_toml(&text).ok();
     }
     Scenario::builtin(name_or_path)
+}
+
+/// Write the parsed set-up as a shareable scenario TOML and exit.
+///
+/// With `--scenario preset` this reproduces the built-in *including* its
+/// shape (walls, explicit food, wall geometry, seed) rather than just the
+/// keyword, so the file imports elsewhere with no further flags. Without
+/// `--scenario` it captures whatever the other flags built, which gives the
+/// CLI the same export path the window app's button offers.
+///
+/// Export replaces the simulation instead of preceding it: a shareable run
+/// should not take 5000 ticks before handing back the file.
+fn export_scenario_file(opts: &Options, path: &str) -> ExitCode {
+    let s = opts.lang.strings();
+    let (name, description) = match &opts.scenario {
+        Some(scenario) => (scenario.name.clone(), scenario.description.clone()),
+        None => ("exported".to_string(), String::new()),
+    };
+    let scenario = Scenario::from_config(&name, &description, &opts.config);
+    match std::fs::write(path, scenario.to_toml_string()) {
+        Ok(()) => {
+            println!("{}", s.scenario_exported_fmt.replace("{path}", path));
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!(
+                "{}",
+                s.scenario_failed_fmt
+                    .replace("{path}", path)
+                    .replace("{err}", &err.to_string())
+            );
+            ExitCode::from(3)
+        }
+    }
 }
 
 /// Fill in the geometry of a U-wall preset, keeping whatever was already set.
