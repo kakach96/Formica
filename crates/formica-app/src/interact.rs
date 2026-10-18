@@ -114,6 +114,19 @@ impl Plugin for FormicaInteractPlugin {
     }
 }
 
+/// Is the cursor over the egui panel's strip?
+///
+/// `egui_wants_pointer_input` only fires over *interactive* widgets - over
+/// plain panel text or empty panel space it is false, so it cannot be the
+/// only authority for "this click/wheel belongs to the panel". While the
+/// pointer is inside the panel's strip the map must not react: the wheel
+/// scrolls the panel (and zooming there yanks the map out from under a
+/// widget the user is not even hovering), and a click would paint a pile
+/// hidden underneath the panel. Zero width (first frame) owns nothing.
+fn over_panel(cursor_x: f32, panel_width: f32) -> bool {
+    panel_width > 0.0 && cursor_x < panel_width
+}
+
 /// Wheel zoom and drag pan for the map view.
 ///
 /// The camera view (`CameraView`) is presentation state, so the simulation is
@@ -131,6 +144,7 @@ fn handle_view_input(
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     geometry: Res<SceneGeometry>,
+    panel: Res<crate::render::PanelMetrics>,
     focus: Res<UiFocus>,
     state: Res<InteractionState>,
     mut view: ResMut<crate::render::CameraView>,
@@ -147,6 +161,11 @@ fn handle_view_input(
         *drag_anchor = None;
         return;
     };
+    // The panel owns its strip outright (see `over_panel`).
+    if over_panel(cursor.x, panel.width) {
+        *drag_anchor = None;
+        return;
+    }
     let (fw, fh) = (geometry.width as f32, geometry.height as f32);
     if fw <= 0.0 || fh <= 0.0 {
         return;
@@ -205,6 +224,7 @@ fn handle_pointer(
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
+    panel: Res<crate::render::PanelMetrics>,
     focus: Res<UiFocus>,
     state: Res<InteractionState>,
     mut obstacles: ResMut<Obstacles>,
@@ -226,6 +246,10 @@ fn handle_pointer(
     let Some(cursor) = window.cursor_position() else {
         return;
     };
+    // The panel owns its strip outright (see `over_panel`).
+    if over_panel(cursor.x, panel.width) {
+        return;
+    }
     let Ok((camera, camera_transform)) = cameras.single() else {
         return;
     };
@@ -290,6 +314,20 @@ fn stamp(obstacles: &mut Obstacles, center: Vec2, radius: f32, blocked: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Clicks and wheel over the panel strip belong to the panel: egui's own
+    /// "wants pointer" test does not fire over plain panel text.
+    #[test]
+    fn the_panel_strip_claims_the_pointer() {
+        assert!(over_panel(0.0, 330.0), "the panel's left edge");
+        assert!(over_panel(329.9, 330.0), "just inside the panel");
+        assert!(!over_panel(330.0, 330.0), "the boundary is the map's");
+        assert!(!over_panel(800.0, 330.0));
+        // Before the first frame the panel width is unknown: own nothing,
+        // or the whole window would be inert.
+        assert!(!over_panel(0.0, 0.0));
+        assert!(!over_panel(10.0, 0.0));
+    }
 
     #[test]
     fn a_brush_stamps_a_disc_of_the_requested_radius() {
