@@ -395,7 +395,7 @@ mod tests {
     fn batched_release_trickles_and_resets_to_the_first_batch() {
         let mut app = headless_app(SimConfig {
             ant_count: 100,
-            spawn_rate: 10,
+            spawn_rate: 10.0,
             spawn_initial: 10,
             ..Default::default()
         });

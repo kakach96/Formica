@@ -233,8 +233,11 @@ pub struct SimConfig {
     ///
     /// Above zero the colony opens with [`SimConfig::spawn_initial`] ants and
     /// the configured population arrives at this rate - new ants appear on
-    /// the nest disc exactly like post-predation replacements do.
-    pub spawn_rate: usize,
+    /// the nest disc exactly like post-predation replacements do. Fractions
+    /// are allowed (the budget floors per tick), so a slow stream is
+    /// expressible: `0.5` is one ant every two ticks, `0.1` is about six
+    /// ants a second at 60 fps.
+    pub spawn_rate: f32,
     /// Population present at tick 0 when [`SimConfig::spawn_rate`] is above
     /// zero; the rest of the colony emerges at the rate. Ignored when the
     /// rate is zero (everything leaves at once), and clamped to `ant_count`.
@@ -380,7 +383,7 @@ impl Default for SimConfig {
             spawn_mode: SpawnMode::Disk,
             spawn_direction: 0.0,
             spawn_spread: 60.0,
-            spawn_rate: 0,
+            spawn_rate: 0.0,
             spawn_initial: 0,
             individuality: DEFAULT_INDIVIDUALITY,
 
@@ -469,14 +472,18 @@ impl SimConfig {
     /// tick counter, so batching adds no bookkeeping, resets for free, and
     /// stays bit-identical for a given config. With `spawn_rate == 0` this is
     /// just `ant_count` - the historical behaviour.
+    ///
+    /// The fractional rate floors per tick, so the *budget* only ever grows
+    /// in whole ants: `rate = 0.5` releases nothing on odd ticks and one ant
+    /// on even ones.
     #[inline]
     pub fn emerged_per_colony(&self, tick: u64) -> usize {
-        if self.spawn_rate == 0 {
+        if self.spawn_rate <= 0.0 {
             return self.ant_count;
         }
         self.spawn_initial
             .min(self.ant_count)
-            .saturating_add(self.spawn_rate.saturating_mul(tick as usize))
+            .saturating_add((self.spawn_rate * tick as f32).floor() as usize)
             .min(self.ant_count)
     }
 
@@ -499,7 +506,7 @@ impl SimConfig {
         self.spawn_radius = self.spawn_radius.clamp(0.0, 64.0);
         self.spawn_direction = self.spawn_direction.rem_euclid(360.0);
         self.spawn_spread = self.spawn_spread.clamp(0.0, 360.0);
-        self.spawn_rate = self.spawn_rate.min(20_000);
+        self.spawn_rate = self.spawn_rate.clamp(0.0, 20_000.0);
         self.spawn_initial = self.spawn_initial.min(20_000);
         self.individuality = self.individuality.clamp(0.0, 3.0);
         // Two nests must both fit, and must not sit on top of each other.
@@ -672,24 +679,26 @@ mod tests {
         let mut config = SimConfig {
             spawn_direction: -90.0,
             spawn_spread: 500.0,
-            spawn_rate: 99_999,
+            spawn_rate: 99_999.0,
             spawn_initial: 99_999,
             ..Default::default()
         };
         config.sanitize();
         assert_eq!(config.spawn_direction, 270.0);
         assert_eq!(config.spawn_spread, 360.0);
-        assert_eq!(config.spawn_rate, 20_000);
+        assert_eq!(config.spawn_rate, 20_000.0);
         assert_eq!(config.spawn_initial, 20_000);
     }
 
     /// The release schedule is a pure function of the tick: start with
     /// `spawn_initial`, grow by `spawn_rate` per tick, stop at `ant_count`.
+    /// A fractional rate floors per tick: 0.5 with initial 20 waits one tick
+    /// between single-ant releases.
     #[test]
     fn the_emerged_population_follows_the_release_schedule() {
         let config = SimConfig {
             ant_count: 100,
-            spawn_rate: 10,
+            spawn_rate: 10.0,
             spawn_initial: 20,
             ..Default::default()
         };
@@ -702,12 +711,23 @@ mod tests {
         // A zero rate is the historical all-at-once behaviour, regardless of
         // what the initial count says.
         let instant = SimConfig {
-            spawn_rate: 0,
+            spawn_rate: 0.0,
             spawn_initial: 20,
-            ..config
+            ..config.clone()
         };
         assert_eq!(instant.emerged_per_colony(0), 100);
         assert_eq!(instant.emerged_per_colony(50), 100);
+
+        // A fractional rate: floor(rate * tick) grows in whole ants.
+        let trickle = SimConfig {
+            spawn_rate: 0.5,
+            spawn_initial: 20,
+            ..config
+        };
+        assert_eq!(trickle.emerged_per_colony(1), 20);
+        assert_eq!(trickle.emerged_per_colony(2), 21);
+        assert_eq!(trickle.emerged_per_colony(3), 21);
+        assert_eq!(trickle.emerged_per_colony(4), 22);
     }
 
     /// Homing modes round-trip through their keywords, and the default stays

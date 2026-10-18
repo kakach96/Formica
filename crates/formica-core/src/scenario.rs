@@ -78,8 +78,8 @@ pub struct ScenarioOverrides {
     pub spawn_direction: Option<f32>,
     /// Jet cone width in degrees, 0..=360 (360 = the disk again).
     pub spawn_spread: Option<f32>,
-    /// Ants emerging per tick, 0 = all at once.
-    pub spawn_rate: Option<usize>,
+    /// Ants emerging per tick, 0 = all at once. Fractions allowed.
+    pub spawn_rate: Option<f32>,
     /// Population at tick 0 when the rate is above 0.
     pub spawn_initial: Option<usize>,
     /// RNG seed. Present in *exported* scenarios so a file reproduces the
@@ -597,7 +597,7 @@ mod tests {
         assert_eq!(config.spawn_mode, crate::config::SpawnMode::Jet);
         assert_eq!(config.spawn_direction, 90.0);
         assert_eq!(config.spawn_spread, 45.0);
-        assert_eq!(config.spawn_rate, 5);
+        assert_eq!(config.spawn_rate, 5.0);
         assert_eq!(config.spawn_initial, 10);
 
         let text = Scenario::from_config("stream", "", &config).to_toml_string();
@@ -607,7 +607,7 @@ mod tests {
             .expect("reparse")
             .apply(&mut rebuilt);
         assert_eq!(rebuilt.spawn_mode, crate::config::SpawnMode::Jet);
-        assert_eq!(rebuilt.spawn_rate, 5);
+        assert_eq!(rebuilt.spawn_rate, 5.0);
         assert_eq!(rebuilt.spawn_initial, 10);
     }
 

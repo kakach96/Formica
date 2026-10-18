@@ -16,8 +16,8 @@ Above, tick 3000: one pile is walled in; the colony still reaches it, but the co
 
 | Config (96×96, 2500 ticks) | delivered | recovery | wall cells |
 |---|---|---|---|
-| Open field | 6761 | 56.5% | 0 |
-| U-shaped wall | **5638 (−16.6%)** | 47.2% | 126 (0.2%) |
+| Open field | 6949 | 58.1% | 0 |
+| U-shaped wall | **6466 (−6.9%)** | 54.2% | 126 (0.2%) |
 
 What is worth watching is the **process**, not the number: the first ants to arrive are the ones that happened to go around; the surviving trail is the one that went around; and the straight trail that ran into the wall evaporates on its own. That is a direct demonstration of "wrong paths get selected out".
 
@@ -33,13 +33,13 @@ A predator has two rules: if it can see an ant, charge the nearest one; otherwis
 
 | Predators (256×256, 2500 ticks) | delivered | recovery | S-score | eaten |
 |---|---|---|---|---|
-| 0 | 7887 | 87.6% | 2.00 | 0 |
-| 1 | 7250 | 80.5% | 2.18 | 2141 |
-| 2 | 7266 | 80.7% | 1.92 | 2343 |
-| 4 | 4473 | 49.7% | 2.78 | 11795 |
-| 8 | **2550** | **28.3%** | **3.74** | 25571 |
+| 0 | 8248 | 91.6% | 1.80 | 0 |
+| 1 | 6392 | 71.0% | 2.61 | 2735 |
+| 2 | 5217 | 58.0% | 2.87 | 7109 |
+| 4 | 4858 | 54.0% | 2.22 | 10241 |
+| 8 | **2649** | **29.4%** | **4.25** | 25158 |
 
-Eight predators cut yield to a third. Note the S-score rises **monotonically** with predation pressure (2.00 → 3.74): the first half of the curve is nearly flat because the colony needs a long time to gather enough workers to hold a trail open — the lag phase stretches, so the peak/mean ratio grows.
+Eight predators cut yield to about a third. Note the S-score **grows with predation pressure** (1.80 → 4.25, with a dip at 4): the more predators, the longer the colony needs to gather enough workers to hold a trail open — the lag phase stretches, so the peak/mean ratio grows.
 
 ### 3. Two competing colonies
 

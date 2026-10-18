@@ -70,9 +70,9 @@ In the window you can drag sliders to retune parameters live, resize the map, **
 | Food delivered | 9000.0 / 9000.0 units (**100%** recovered) |
 | Round trips | 9207 |
 | First delivery | tick 60 |
-| 10% / 50% / 90% | tick 400 / 1360 / 2630 |
-| Peak delivery rate | tick 400 |
-| **S-score** | **3.50** |
+| 10% / 50% / 90% | tick 400 / 1280 / 2420 |
+| Peak delivery rate | tick 590 |
+| **S-score** | **3.30** |
 
 **Definition of the S-score** (`formica_core::metrics::analyze`):
 
@@ -82,7 +82,7 @@ S = peak-interval delivery / mean-interval delivery
 
 A straight-line accumulation has peak = mean, score 1.0; an S-curve has a lag phase, a steep phase and a plateau, so the peak far exceeds the mean. Thresholds used here: `>= 2.0` strong S, `>= 1.5` clear S, `>= 1.15` weak S, otherwise linear.
 
-The curve matches the milestones exactly: the first 400 ticks deliver 10% (lag), ticks 400→2630 deliver 80% (steep), after tick 2630 it is nearly flat (plateau).
+The curve matches the milestones exactly: the first 400 ticks deliver 10% (lag), ticks 400→2420 deliver 80% (steep), after tick 2420 it is nearly flat (plateau).
 
 ### Phase 2
 
@@ -102,11 +102,11 @@ Reading the panel's `searching / returning` counters across frames makes the pos
 
 | tick | searching / returning | returning share | delivered |
 |---|---|---|---|
-| 500 | 331 / 169 | 34% | 15.4% |
-| 1500 | 362 / 138 | 28% | 55.9% |
-| 3000 | 432 / 68 | 14% | 97.0% |
+| 500 | 313 / 187 | 38% | 14.9% |
+| 1500 | 357 / 143 | 29% | 59.1% |
+| 3000 | 469 / 31 | 7% | 99.4% |
 
-The returning share peaks at 34% around tick 500: once a trail forms, a larger fraction of ants finds food and hauls it home. It then falls monotonically because the food is nearly gone.
+The returning share peaks at 38% around tick 500: once a trail forms, a larger fraction of ants finds food and hauls it home. It then falls monotonically because the food is nearly gone.
 
 ### Scripted screenshots (for unattended verification)
 
@@ -151,7 +151,7 @@ All three are implemented, each with a controlled experiment and quantified resu
 
 | Feature | Result |
 |---|---|
-| U-shaped wall | 6761 → **5638** (−16.6%), and the colony still finds a way around |
+| U-shaped wall | 6949 → **6466** (−6.9%), and the colony still finds a way around |
 | Predators (8) | 7887 → **2550** (−67.7%); the cost is time and cargo, not lives |
 | Two colonies | one colony of 150: 6161 → two of 75: 6104 (same nest spacing, average cost over four seeds ≈ **3%**) |
 
@@ -305,7 +305,7 @@ Versions: **Bevy 0.19.1** + **bevy_egui 0.42.0** (egui 0.36).
 | `spawn_mode` | disk | `--spawn-mode` | how ants leave the nest: `disk` (uniform disc, radial headings — brief behaviour) / `jet` (cone around one bearing) |
 | `spawn_direction` | 0 | `--spawn-direction` | jet bearing in degrees, 0 = east (+x), counter-clockwise |
 | `spawn_spread` | 60 | `--spawn-spread` | jet cone width in degrees, 0–360; at 360 the distribution is the uniform disk again |
-| `spawn_rate` | 0 | `--spawn-rate` | ants emerging from the nest per tick (0 = all at once) |
+| `spawn_rate` | 0 | `--spawn-rate` | ants emerging from the nest per tick (0 = all at once; fractions allowed) |
 | `spawn_initial` | 0 | `--spawn-initial` | population at tick 0 while `spawn_rate` > 0; the rest emerges at the rate |
 | `width` × `height` | 256×256 | `--width/--height` | map size |
 | `evaporation_rate` | 0.1 | `--evaporation` | per tick, `c *= (1 - r)` |
@@ -343,8 +343,8 @@ Obstacles (U-shaped wall), predators and two competing colonies — each with a 
 
 | Feature | Finding |
 |---|---|
-| U-shaped wall | −16.6% yield, but the colony still routes around — a direct demonstration of wrong paths being evaporated away |
-| Predators | 8 predators push yield to 28.3%; the cost is time and cargo, not lives (nests are a refuge) |
+| U-shaped wall | −6.9% yield, but the colony still routes around — a direct demonstration of wrong paths being evaporated away |
+| Predators | 8 predators push yield to 29.4%; the cost is time and cargo, not lives (nests are a refuge) |
 | Two colonies | ≈ **3%** average loss over four seeds at the same nest spacing — splitting up halves the scent budget |
 | All three on | no conflicts, runs on one screen (`docs/figures/p4-everything.png`) |
 
@@ -428,7 +428,7 @@ The full write-up of the test design (the conservation law, control experiments 
 - **Individuality is single-axis**: one "boldness" value drives both wander and speed.
 - **Crowding relief treats crowding, not blockage**: at 45% wall density the terrain itself does not percolate and ants cannot get out — a map problem, not a rules problem.
 - **Ants have no individual memory**: `AntVigor` is a fixed temperament drawn at spawn, not "I have been here" memory, and it is not learning.
-- **Homing is a straight heading**: per the brief; `home_pheromone_weight` already exposes the follow-the-scent switch. For walls between an ant and its nest, `--homing wall` (whiskers + jam escape) and `--homing flow` (BFS nest flow field) are the optional answers; the default stays brief-exact and bit-identical (measured at 1500 ticks over a one-gap wall map: direct 344 units delivered, wall-sense 452, flow-field 2020).
+- **Homing is a straight heading**: per the brief; `home_pheromone_weight` already exposes the follow-the-scent switch. For walls between an ant and its nest, `--homing wall` (whiskers + jam escape) and `--homing flow` (BFS nest flow field) are the optional answers; the default stays brief-exact and bit-identical (measured at 1500 ticks over a one-gap wall map: direct 312 units delivered, wall-sense 436, flow-field 2206).
 - **Predators neither tire nor satiate**: predation pressure is constant.
 - **The U-shaped wall wraps only the first food pile**: to keep experiments reproducible.
 - **Map size cannot be dragged continuously**: drag, then press apply size, because resizing reallocates the texture and rebuilds the scene.

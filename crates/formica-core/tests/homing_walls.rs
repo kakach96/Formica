@@ -5,9 +5,9 @@
 //!
 //! | mode          | delivered | recovery |
 //! |---------------|-----------|----------|
-//! | path          | 344       | 11.5%    |
-//! | wall          | 452       | 15.1%    |
-//! | flow          | 2020      | 67.3%    |
+//! | path          | 312       | 10.4%    |
+//! | wall          | 436       | 14.5%    |
+//! | flow          | 2206      | 73.5%    |
 //!
 //! The map puts a two-cell wall with an eight-cell gap *off* the nest-food
 //! line, so a directly-homing ant piles against the wall instead of flowing
@@ -73,6 +73,13 @@ fn richer_homing_rescues_the_walled_return() {
     let path = run(HomingMode::PathIntegration);
     let wall = run(HomingMode::WallSense);
     let flow = run(HomingMode::FlowField);
+
+    // The printed record of the table at the top of this file; re-run with
+    // --nocapture after any behaviour change and update the table.
+    println!(
+        "delivered @1500 ticks: path {:.0}, wall {:.0}, flow {:.0}",
+        path.delivered_total, wall.delivered_total, flow.delivered_total
+    );
 
     for (name, stats) in [
         ("path integration", &path),

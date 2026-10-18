@@ -1461,22 +1461,18 @@ fn exit_controls(
         }
     }
 
-    let mut rate = config.spawn_rate as u32;
     let rate_slider = labelled_slider(
         ui,
         s.exit_rate,
         s.exit_rate_hint,
-        egui::Slider::new(&mut rate, 0..=50),
+        egui::Slider::new(&mut config.spawn_rate, 0.0..=50.0).step_by(0.1),
     );
-    if rate_slider.changed() {
-        config.spawn_rate = rate as usize;
-    }
     if rate_slider.drag_stopped() {
         commands.restart = true;
     }
     // Only meaningful while trickling; hidden otherwise so the 0
     // state stays unambiguous ("everything leaves at once").
-    if config.spawn_rate > 0 {
+    if config.spawn_rate > 0.0 {
         let max = config.ant_count.max(1) as u32;
         let mut initial = config.spawn_initial.min(config.ant_count) as u32;
         let initial_slider = labelled_slider(

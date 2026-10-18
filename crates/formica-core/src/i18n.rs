@@ -538,7 +538,7 @@ pub static EN: Strings = Strings {
     exit_spread: "jet spread (°)",
     exit_spread_hint: "width of the exit cone; 360° is statistically the uniform disk again",
     exit_rate: "emerge per tick",
-    exit_rate_hint: "0 = all ants leave at once. Above 0 the colony opens with the initial count and the rest emerges from the nest at this rate",
+    exit_rate_hint: "0 = all ants leave at once. Above 0 the colony opens with the initial count and the rest emerges from the nest at this rate - fractions allowed, 0.1 is about six ants a second at 60 fps",
     exit_initial: "initial ants",
     exit_initial_hint: "population at tick 0 while emerge-per-tick is on; ignored when the rate is 0",
 
@@ -872,7 +872,7 @@ pub static ZH: Strings = Strings {
     exit_spread: "喷出扇角(°)",
     exit_spread_hint: "出巢扇形的张角;360° 时在统计上与均匀圆盘分布一致",
     exit_rate: "每tick出巢数",
-    exit_rate_hint: "0 = 全部蚂蚁一次出巢。大于 0 时蚁群以初始数量开局,其余按此速率从巢中陆续出巢",
+    exit_rate_hint: "0 = 全部蚂蚁一次出巢。大于 0 时蚁群以初始数量开局,其余按此速率陆续出巢;可用小数,0.1 在 60fps 下约为每秒 6 只",
     exit_initial: "初始出巢数",
     exit_initial_hint: "分批出巢时 tick 0 的蚁群数量;每tick出巢数为 0 时不生效",
 

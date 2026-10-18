@@ -233,13 +233,14 @@ impl AntVigor {
 /// Returned as a tuple (not a `Bundle` struct) so it can be spawned through
 /// either `Commands` or a `&mut World` without duplicating the setup.
 ///
-/// The *positions* are a plain uniform-in-area disc, and deliberately so: at
-/// the default `spawn_radius` of 2 cells the whole nest chamber is four cells
-/// across, so any structure finer than that is invisible. The irregularity the
-/// viewer sees comes from what the ants do next - see [`AntVigor`] - not from
-/// where they started. Both spawn modes scatter positions the same way; the
-/// modes differ only in the heading, which keeps a full-circle jet cone
-/// statistically equal to the disk.
+/// The *positions* are a plain uniform-in-area disc in disk mode, and the
+/// cone's sector of that disc in jet mode - the departure wedge is part of
+/// the initial state. At the default `spawn_radius` of 2 cells the whole nest
+/// chamber is four cells across, so any structure finer than that is
+/// invisible. The irregularity the viewer sees comes from what the ants do
+/// next - see [`AntVigor`] - not from where they started. A full-circle jet
+/// cone degenerates to the disk exactly (positions and headings), which is
+/// what keeps the two modes comparable.
 pub fn newborn_ant(
     colony: AntColony,
     nest: &Nest,
@@ -256,22 +257,37 @@ pub fn newborn_ant(
     AntVigor,
 ) {
     let radius = config.spawn_radius.max(0.0);
-    let angle = rng.range(0.0, std::f32::consts::TAU);
-    // `sqrt` is what makes the scatter uniform over the *area* of the disc
-    // rather than piling every ant onto the centre cell.
-    let r = radius * rng.unit().sqrt();
-    let x = nest.x + angle.cos() * r;
-    let y = nest.y + angle.sin() * r;
+    // Disk: uniform over the disc's *area* (the `sqrt`), radial bearings.
+    // Jet: uniform over the cone's *sector* of that disc, with the heading
+    // drawn from the same cone independently - the departure wedge is the
+    // initial state, so the pile itself reads as directed. At a 360° spread
+    // the sector is the full disc and the modes coincide exactly.
+    let (bearing, r) = match config.spawn_mode {
+        SpawnMode::Disk => {
+            let angle = rng.range(0.0, std::f32::consts::TAU);
+            (angle, radius * rng.unit().sqrt())
+        }
+        SpawnMode::Jet => {
+            let direction = config.spawn_direction.to_radians();
+            let half = config.spawn_spread.max(0.0).to_radians() * 0.5;
+            (
+                direction + rng.range(-half, half),
+                radius * rng.unit().sqrt(),
+            )
+        }
+    };
+    let x = nest.x + bearing.cos() * r;
+    let y = nest.y + bearing.sin() * r;
 
-    // Disk mode faces away from the nest, but not *exactly* away. A radial
-    // heading for every ant is half of why the colony used to expand as a
-    // hollow ring: with one shared speed and one shared direction the disc
-    // becomes an annulus, and stays one until the heading jitter has had
-    // time to decorrelate it.
-    let heading = match config.spawn_mode {
+    let heading_angle = match config.spawn_mode {
+        // Face away from the nest, but not *exactly* away. A radial heading
+        // for every ant is half of why the colony used to expand as a hollow
+        // ring: with one shared speed and one shared direction the disc
+        // becomes an annulus, and stays one until the heading jitter has had
+        // time to decorrelate it.
         SpawnMode::Disk => {
             let outward = if r > 1.0e-3 {
-                angle
+                bearing
             } else {
                 rng.range(0.0, std::f32::consts::TAU)
             };
@@ -293,7 +309,7 @@ pub fn newborn_ant(
         AntMarker,
         colony,
         AntPos::new(x, y),
-        AntHeading::new(heading),
+        AntHeading::new(heading_angle),
         AntState::Searching,
         Carrying::default(),
         PheromoneSensors::default(),
@@ -426,6 +442,56 @@ mod tests {
             (0.18..0.33).contains(&fraction),
             "{fraction} of ants landed in the inner quarter of the disc"
         );
+    }
+
+    /// In jet mode the departure wedge is the initial state: positions fill
+    /// the cone's *sector* of the disc (uniform in area, like the disk), and
+    /// at a 360° spread the two modes coincide exactly.
+    #[test]
+    fn jet_positions_fill_the_cone_sector() {
+        let nest = Nest {
+            x: 50.0,
+            y: 50.0,
+            radius: 4.0,
+        };
+        let jet = |spread: f32| SimConfig {
+            spawn_mode: SpawnMode::Jet,
+            spawn_direction: 0.0,
+            spawn_spread: spread,
+            spawn_radius: 20.0,
+            ..config()
+        };
+        let mut rng = SimRng::new(19);
+        let n = 4_000;
+
+        // A 60° cone holds a sixth of the disc's bearings: every ant must sit
+        // inside it (± half + rounding), and the control arm at 360° must not.
+        let mut in_sector = 0;
+        for _ in 0..n {
+            let (_, _, pos, _, _, _, _, _) = newborn_ant(AntColony(0), &nest, &mut rng, &jet(60.0));
+            let d = (pos.x - nest.x).hypot(pos.y - nest.y);
+            assert!(d <= 20.0 + 1e-3, "spawned {d} off the disc");
+            let bearing = (pos.y - nest.y).atan2(pos.x - nest.x);
+            assert!(
+                wrap_angle(bearing).abs() <= 30.0f32.to_radians() + 1e-3,
+                "position {bearing} rad outside the ±30° sector"
+            );
+            in_sector += 1;
+        }
+        assert_eq!(in_sector, n);
+
+        // Control: the same cone test on a 360° jet must fail - the sector
+        // degenerated to the full disc, bearing-wise.
+        let mut escaped = 0;
+        for _ in 0..n {
+            let (_, _, pos, _, _, _, _, _) =
+                newborn_ant(AntColony(0), &nest, &mut rng, &jet(360.0));
+            let bearing = (pos.y - nest.y).atan2(pos.x - nest.x);
+            if wrap_angle(bearing).abs() > 30.0f32.to_radians() + 1e-3 {
+                escaped += 1;
+            }
+        }
+        assert!(escaped > 1_000, "a 360° jet still looks sector-shaped");
     }
 
     /// The heading must not be exactly radial, or the colony still expands as

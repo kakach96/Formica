@@ -84,9 +84,12 @@ pub fn tally_crowding(config: Res<SimConfig>, mut grid: ResMut<CrowdGrid>, ants:
 /// * The push is rejected when it would land in a wall. A bottleneck is
 ///   normally *made* of wall, so a relief rule that ignored obstacles would
 ///   shove half the colony into the rock.
-/// * The ant's heading is turned to match the push. Moving an ant sideways
-///   while it still believes it is walking north means the next tick's step
-///   undoes the displacement, and the relief degenerates into a vibration.
+/// * The ant's heading is turned to match the push *only when the heading
+///   opposes it* (it would walk straight back across the displacement).
+///   Overriding a compatible heading every tick would erase deliberate
+///   departures - a directed jet's cone survives a nest-pile jostle this way,
+///   while an ant facing back into the jam still gets turned, which is what
+///   keeps the relief from degenerating into a vibration.
 pub fn relieve_crowding(
     config: Res<SimConfig>,
     obstacles: Res<Obstacles>,
@@ -148,7 +151,18 @@ pub fn relieve_crowding(
         if mx * mx + my * my > 1.0e-12 {
             pos.x = nx;
             pos.y = ny;
-            heading.angle = wrap_angle(my.atan2(mx));
+            // Re-head only when the old heading would *undo* the push (it
+            // points back across it). A shove is physical, but it should not
+            // overwrite an intent that is compatible with it: a directed jet
+            // departure keeps its cone heading through a sideways jostle, and
+            // a trail follower keeps following. Measured: with the old
+            // always-re-head rule, a fresh 500-ant jet at the nest lost its
+            // cone in one tick (heading-in-cone 0.98 -> 0.11); under this rule
+            // the aligned half keeps its bearings and the pile still unfolds.
+            let pushed = wrap_angle(my.atan2(mx));
+            if (heading.angle - pushed).cos() < 0.0 {
+                heading.angle = pushed;
+            }
         }
     }
 }
@@ -346,6 +360,78 @@ mod tests {
             assert_eq!((pos.x, pos.y), (20.0, 20.0));
             assert_eq!(heading.angle, 0.0);
         }
+    }
+
+    /// An ant whose heading is *compatible* with the relief push keeps it -
+    /// the jostle moves the body, not the intent. The control arm (heading
+    /// opposing the push) still gets turned onto the displacement, which is
+    /// what stops the relief from degenerating into a vibration.
+    #[test]
+    fn an_aligned_heading_survives_a_relief_push() {
+        // The crowded pile and its escape bearing are the same for both arms;
+        // only the probe ant's own heading differs.
+        let run_arm = |heading_deg: f32| -> (f32, f32, f32) {
+            let mut world = open_world(SimConfig {
+                crowd_relief: 1.0,
+                crowd_threshold: 4.0,
+                ..Default::default()
+            });
+            for _ in 0..20 {
+                world.spawn((AntPos::new(20.0, 20.0), AntHeading::new(0.0)));
+            }
+            world.run_system_once(tally_crowding).unwrap();
+            let entity = world
+                .spawn((
+                    AntPos::new(20.0, 20.0),
+                    AntHeading::new(heading_deg.to_radians()),
+                ))
+                .id();
+            // Re-tally so the probe is counted, then relieve.
+            world.run_system_once(tally_crowding).unwrap();
+            world.run_system_once(relieve_crowding).unwrap();
+
+            let mut q = world.query::<(&AntPos, &AntHeading)>();
+            let (pos, heading) = q.get(&world, entity).unwrap();
+            (pos.x, pos.y, heading.angle)
+        };
+
+        // Where does the pile escape? (A separate build: identical grid, so
+        // the arms aim at the same bearing.)
+        let push = {
+            let mut world = open_world(SimConfig {
+                crowd_relief: 1.0,
+                crowd_threshold: 4.0,
+                ..Default::default()
+            });
+            for _ in 0..20 {
+                world.spawn((AntPos::new(20.0, 20.0), AntHeading::new(0.0)));
+            }
+            world.run_system_once(tally_crowding).unwrap();
+            let (ex, ey) = world
+                .resource::<CrowdGrid>()
+                .escape_direction(20.0, 20.0)
+                .expect("the pile has somewhere to spread");
+            ey.atan2(ex)
+        };
+
+        // Aligned with the push: the heading survives, and the ant still moved.
+        let (ax, ay, aligned_heading) = run_arm(push.to_degrees());
+        assert_eq!(
+            aligned_heading, push,
+            "an aligned heading was overwritten by the jostle"
+        );
+        assert!(
+            (ax - 20.0).hypot(ay - 20.0) > 1e-3,
+            "the probe was never pushed, the aligned arm proves nothing"
+        );
+
+        // Opposing the push: re-headed onto the actual displacement bearing.
+        let (ox, oy, opposing_heading) = run_arm((push.to_degrees() + 180.0).rem_euclid(360.0));
+        let displacement = (oy - 20.0).atan2(ox - 20.0);
+        assert!(
+            (opposing_heading - displacement).abs() < 1e-3,
+            "an opposing heading was not turned onto the push: {opposing_heading} vs {displacement}"
+        );
     }
 
     #[test]

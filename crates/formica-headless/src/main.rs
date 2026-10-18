@@ -563,7 +563,7 @@ fn print_report(opts: &Options, outcome: &Outcome) {
     if config.homing_mode != HomingMode::PathIntegration {
         println!("{}  {}", s.report_homing, config.homing_mode.keyword());
     }
-    if config.spawn_mode != SpawnMode::Disk || config.spawn_rate > 0 {
+    if config.spawn_mode != SpawnMode::Disk || config.spawn_rate > 0.0 {
         // Values are language-neutral keywords/numbers, like the homing line.
         let mut exit = match config.spawn_mode {
             SpawnMode::Disk => "disk".to_string(),
@@ -572,7 +572,7 @@ fn print_report(opts: &Options, outcome: &Outcome) {
                 config.spawn_direction, config.spawn_spread
             ),
         };
-        if config.spawn_rate > 0 {
+        if config.spawn_rate > 0.0 {
             let _ = write!(
                 exit,
                 ", rate {}/tick, initial {}",

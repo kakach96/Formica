@@ -7,6 +7,7 @@
 //! fails with a number rather than a shrug.
 
 use formica_core::crowd::{CrowdGrid, CROWD_BIN};
+use formica_core::motion::wrap_angle;
 use formica_core::obstacles::Obstacles;
 use formica_core::prelude::*;
 use formica_core::systems::{relieve_crowding, tally_crowding};
@@ -65,21 +66,81 @@ fn dispersal_config(individuality: f32) -> SimConfig {
     }
 }
 
+/// Fix: the directed jet must actually look directed on the map.
+///
+/// Measured on the dispersal map (400 ants, direction 90°, spread 60°,
+/// tolerance ±45°), at tick 20 with the sustained stream (rate 2, initial 0):
+///
+/// ```text
+/// jet   pos-in-window   0.87
+/// disk  pos-in-window   0.29   (control, chance for a ±45° window ≈ 0.25)
+/// ```
+///
+/// The *stream* is where the jet is meant to be watched: departures never
+/// cram into an over-threshold pile, so the cone headings survive and the
+/// colony grows as a directed plume. (A 500-ant *burst* is dominated by the
+/// startup jostle - the crowding relief legitimately shoves a point mass
+/// apart - which is why the stream exists and why its rate takes fractions.)
+#[test]
+fn the_directed_jet_leaves_a_visible_plume() {
+    let sample = |jet: bool| -> f64 {
+        let mut config = dispersal_config(0.6);
+        if jet {
+            config.spawn_mode = SpawnMode::Jet;
+            config.spawn_direction = 90.0;
+            config.spawn_spread = 60.0;
+        }
+        config.spawn_rate = 2.0;
+        config.spawn_initial = 0;
+        let mut app = headless_app(config);
+        let nest = *app.world().resource::<Nests>().get(0);
+        run_ticks(&mut app, 20);
+        let direction = 90.0_f32.to_radians();
+        let window = 45.0_f32.to_radians();
+        let mut q = app.world_mut().query::<&AntPos>();
+        let (mut in_cone, mut n) = (0.0f64, 0.0f64);
+        for pos in q.iter(app.world()) {
+            n += 1.0;
+            let bearing = (pos.y - nest.y).atan2(pos.x - nest.x);
+            if wrap_angle(bearing - direction).abs() <= window {
+                in_cone += 1.0;
+            }
+        }
+        assert!(n > 0.0, "no ants to measure");
+        in_cone / n
+    };
+
+    let jet = sample(true);
+    let disk = sample(false);
+    assert!(
+        (0.65..=1.0).contains(&jet),
+        "the jet plume is not directed: {jet}"
+    );
+    assert!(disk < 0.45, "the disk control arm is not at chance: {disk}");
+    assert!(
+        jet > disk + 0.3,
+        "jet {jet} vs disk {disk}: the comparison lost its contrast"
+    );
+}
+
 /// Fix 1: the colony must not disperse as a hollow ring.
 ///
 /// With every ant identical they all leave the nest at the same speed on the
 /// same heading, so the spawn disc becomes an annulus. Measured at tick 30 on a
 /// 200x200 map with 400 ants, comparing the only thing that differs -
-/// `individuality`:
+/// `individuality` (re-measured under the aligned-heading relief rule, which
+/// no longer scrambles the pile's headings at startup):
 ///
 /// ```text
-/// individuality 0.0 : 65% of the colony in the outermost fifth of its radius,
+/// individuality 0.0 : 90% of the colony in the outermost fifth of its radius,
 ///                     0.0% inside the inner 40%
-/// individuality 0.6 : 14% outermost, 2.2% inner
+/// individuality 0.6 : 21% outermost, 1.8% inner
 /// ```
 ///
-/// The comparison holds at ticks 20 and 45 too (65%/17% and 63%/10%), which is
-/// why the assertion margins are wide rather than tuned to one tick.
+/// The comparison holds at ticks 20 and 45 too (94%/24% and 84%/21%), which is
+/// why the assertion margins are wide rather than tuned to one tick. The
+/// individuals' inner fill sits between 1.8% and 4.2% across those ticks, so
+/// its threshold has the same headroom.
 ///
 /// # Why tick 30 and not tick 600
 ///
@@ -134,7 +195,7 @@ fn the_colony_does_not_disperse_as_a_hollow_ring() {
         100.0 * individual_outer
     );
     assert!(
-        individual_inner > 0.02,
+        individual_inner > 0.012,
         "the middle of the colony's radius is still empty ({:.1}%)",
         100.0 * individual_inner
     );

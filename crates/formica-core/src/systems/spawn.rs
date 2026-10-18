@@ -192,7 +192,7 @@ mod tests {
     fn the_population_arrives_at_the_release_rate() {
         let mut world = setup(SimConfig {
             ant_count: 100,
-            spawn_rate: 10,
+            spawn_rate: 10.0,
             spawn_initial: 20,
             ..Default::default()
         });
@@ -227,7 +227,7 @@ mod tests {
     fn replacements_cannot_exceed_the_emerged_budget() {
         let mut world = setup(SimConfig {
             ant_count: 50,
-            spawn_rate: 10,
+            spawn_rate: 10.0,
             spawn_initial: 5,
             ..Default::default()
         });

@@ -315,13 +315,15 @@ fn food_shade(nx: f32, ny: f32) -> [f32; 4] {
 /// pointing `+X` - the sprite's rotation carries the bearing.
 ///
 /// `spread` is the full cone width in degrees. The tip fades out before the
-/// sprite edge (the texture's half-extent spans 1.5 nest radii, so the
+/// sprite edge (the texture's half-extent spans 2.5 nest radii, so the
 /// visible fan starts where the mound sprite ends), and at 360° the angle
 /// test degenerates to "everywhere" - drawn as a halo, not a wedge with a
 /// wrap seam at the ±180° edge.
 fn nest_exit_shade(nx: f32, ny: f32, spread: f32) -> [f32; 4] {
     let d = (nx * nx + ny * ny).sqrt() * 2.0; // 0 at centre, 1 at the edge
-    let radial = 1.0 - smoothstep(0.80, 1.0, d);
+                                              // The sprite's half-extent spans 2.5 nest radii, so the fan stays at
+                                              // full strength past the mound rim and fades out over its outer 40%.
+    let radial = 1.0 - smoothstep(0.60, 1.0, d);
     let angular = if spread >= 359.5 {
         1.0
     } else {
@@ -329,7 +331,7 @@ fn nest_exit_shade(nx: f32, ny: f32, spread: f32) -> [f32; 4] {
         let offset = wrap_angle(ny.atan2(nx)).abs();
         1.0 - smoothstep(half - 0.03, half + 0.03, offset)
     };
-    let alpha = 0.45 * angular * radial;
+    let alpha = 0.60 * angular * radial;
     [1.0, 1.0, 1.0, alpha]
 }
 
@@ -463,10 +465,14 @@ fn rebuild_scene_if_needed(world: &mut World) {
     // tests assert on.
     let mut images = world.resource_mut::<Assets<Image>>();
     let textures = VisualTextures {
-        ant: images.add(raster(24, 14, ant_shade)),
-        predator: images.add(raster(28, 18, predator_shade)),
-        nest: images.add(raster(32, 32, nest_shade)),
-        food: images.add(raster(24, 24, food_shade)),
+        // 4x the historical resolutions: the shapes are pure functions of
+        // normalized coordinates, so the raster is the same picture sampled
+        // denser, and a zoomed-in view (up to 12x) no longer magnifies
+        // blocky source textures.
+        ant: images.add(raster(96, 56, ant_shade)),
+        predator: images.add(raster(112, 72, predator_shade)),
+        nest: images.add(raster(128, 128, nest_shade)),
+        food: images.add(raster(96, 96, food_shade)),
     };
     world.insert_resource(textures);
     // The letterbox margin around the map matches the soil, not deep space.
@@ -846,9 +852,9 @@ fn sync_exit_sprites(
             Sprite {
                 image: texture.clone(),
                 color: NEST_COLORS[index.min(1)],
-                // The texture's half-extent is 1.5 nest radii, so the cone
-                // reaches past the mound rim before its tip fades out.
-                custom_size: Some(Vec2::splat(nest.radius * 3.0)),
+                // The texture's half-extent is 2.5 nest radii, so the cone
+                // reaches well past the mound rim before its tip fades out.
+                custom_size: Some(Vec2::splat(nest.radius * 5.0)),
                 ..default()
             },
             Transform::from_xyz(nest.x, nest.y, 1.5)
@@ -1012,7 +1018,7 @@ mod tests {
     #[test]
     fn the_jet_cone_is_a_soft_fan_on_the_bearing() {
         let on_axis = nest_exit_shade(0.30, 0.0, 60.0);
-        assert!(on_axis[3] > 0.30, "axis alpha {:?}", on_axis);
+        assert!(on_axis[3] > 0.55, "axis alpha {:?}", on_axis);
         assert_eq!(on_axis[..3], [1.0, 1.0, 1.0], "greyscale tint target");
 
         // Half-cone at 60° spread is 30°; a point 90° off the bearing is out.
@@ -1021,12 +1027,12 @@ mod tests {
 
         // 360° covers every bearing, seam-free.
         let full = nest_exit_shade(0.0, 0.30, 360.0);
-        assert!(full[3] > 0.30, "a 360° cone must cover off-axis points");
+        assert!(full[3] > 0.55, "a 360° cone must cover off-axis points");
 
         // The tip fades before the sprite edge, so the cone never draws a
         // hard square rim.
-        let tip = nest_exit_shade(0.49, 0.0, 60.0);
-        assert!(tip[3] < 0.05, "tip alpha {:?}", tip);
+        let tip = nest_exit_shade(0.48, 0.0, 60.0);
+        assert!(tip[3] < 0.06, "tip alpha {:?}", tip);
     }
 
     /// The fitted view (zoom 1) is exactly the pre-pan framing - and any pan
