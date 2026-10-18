@@ -219,7 +219,7 @@ Exports are complete and feed straight back into imports: **export preset** seri
 cargo run -p formica-app --release
 ```
 
-**Mouse** (mode and master switch in the `Mouse` section):
+**Mouse** (mode and master switch in the `Map edit` section):
 
 | Action | Effect |
 |---|---|
@@ -233,11 +233,10 @@ Left panel:
 |---|---|
 | Status | tick, delivered, **per-colony totals**, round trips, searching/returning, ants eaten, FPS |
 | Delivery curve | live cumulative curve (**two lines with two colonies**) + S-score |
-| Run | pause, restart, **clear trails**, ticks/frame fast-forward |
-| Presets | seven reproducible comparison parameter sets |
-| Scenario | **built-in scenarios (dropdown to load)**, export current set-up / selected preset as TOML, **import from file** |
+| Run | icon buttons: pause/resume (two states), reset, **clear trails**, ticks/frame fast-forward |
+| Presets & scenarios | seven reproducible comparison parameter sets, then **built-in scenarios (dropdown to load)**, export current set-up / selected preset as TOML, **import from file** |
 | World & food | **map size (drag, then press apply size)**, pile count / total / radius |
-| Mouse | map-editing switch, mode, brush radius, food per new pile |
+| Map edit | map-editing switch (mode and brush grey out while it is off), mode, brush radius, food per new pile |
 | Obstacles | open field / U-shaped wall / scattered blocks; sizes and density |
 | Colonies | **colony count 1–2**, nest spacing |
 | Pheromones | evaporation (log slider), deposit strength, kernel radius, cell ceiling |

@@ -24,7 +24,7 @@
 //! | input | effect |
 //! |---|---|
 //! | left panel | live sliders, presets, restart, map size, colonies |
-//! | left click on map | apply the current Mouse mode (food / wall / erase) |
+//! | left click on map | apply the current Map-edit mode (food / wall / erase) |
 //! | right click on map | erase food and wall under the cursor |
 //! | `Esc` | quit |
 //!

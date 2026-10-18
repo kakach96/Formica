@@ -110,6 +110,10 @@ pub struct Strings {
     pub run_section: &'static str,
     pub pause: &'static str,
     pub pause_hint: &'static str,
+    /// Shown as the tooltip of the pause/resume button while paused.
+    pub resume: &'static str,
+    /// Tooltip detail for the resume state of the pause/resume button.
+    pub resume_hint: &'static str,
     pub restart: &'static str,
     pub restart_hint: &'static str,
     pub clear_trails: &'static str,
@@ -119,6 +123,8 @@ pub struct Strings {
 
     // ---- window app: presets ---------------------------------------------
     pub presets_section: &'static str,
+    /// One-line "presets vs scenarios" distinction under the section header.
+    pub presets_hint: &'static str,
     pub preset_brief: &'static str,
     pub preset_brief_hint: &'static str,
     pub preset_no_pheromone: &'static str,
@@ -241,6 +247,8 @@ pub struct Strings {
     pub food_trail: &'static str,
     pub home_trail: &'static str,
     pub color_legend: &'static str,
+    /// The actor-colour legend line (ants, predators, walls).
+    pub legend_actors: &'static str,
 
     // ---- window app: language picker -----------------------------------------------------
     pub language: &'static str,
@@ -391,15 +399,18 @@ pub static EN: Strings = Strings {
 
     run_section: "Run",
     pause: "pause",
-    pause_hint: "toggle: pressed means the simulation is paused",
-    restart: "restart",
+    pause_hint: "stop the tick schedule; the ants hold still",
+    resume: "resume",
+    resume_hint: "continue the tick schedule from where it stopped",
+    restart: "reset",
     restart_hint: "fresh food, empty trails, zeroed statistics",
     clear_trails: "clear trails",
     clear_trails_hint: "zero every pheromone field without disturbing the ants",
     ticks_per_frame: "ticks per frame",
     ticks_per_frame_hint: "fast-forward: the tick schedule is simply run more often per frame",
 
-    presets_section: "Presets",
+    presets_section: "Presets & scenarios",
+    presets_hint: "presets change behaviour parameters only; scenarios also rebuild the map (walls and food) and can be shared as files",
     preset_brief: "Brief defaults",
     preset_brief_hint: "evaporation 0.10, the parameters from the project brief",
     preset_no_pheromone: "No pheromone",
@@ -422,12 +433,12 @@ pub static EN: Strings = Strings {
     apply_size: "apply size",
     apply_size_hint: "reallocates the pheromone texture and rebuilds the scene, which discards the current run",
     starting_piles: "starting piles",
-    starting_piles_hint: "applied on restart; click the map to add more",
+    starting_piles_hint: "applied on reset; click the map to add more",
     food_per_pile: "food per pile",
     pile_radius: "pile radius",
     units_on_map: "units on the map",
 
-    mouse_section: "Mouse",
+    mouse_section: "Map edit",
     enable_map_editing: "enable map editing",
     brush_radius: "brush radius",
     mouse_help: "left click applies the mode; right click erases food and wall",
@@ -446,7 +457,7 @@ pub static EN: Strings = Strings {
     thickness: "thickness",
     wall_density: "wall density",
     wall_cells: "wall cells",
-    draw_your_own: "draw your own with the Mouse section above",
+    draw_your_own: "draw your own with the Map edit section above",
 
     homing_section: "Homing navigation",
     homing_mode: "mode",
@@ -508,6 +519,7 @@ pub static EN: Strings = Strings {
     food_trail: "food trail",
     home_trail: "home trail",
     color_legend: "colony 0: green / violet    colony 1: amber / cyan",
+    legend_actors: "ants: white / orange    predators: red    walls: grey",
     language: "language",
 
     scenario_section: "Scenario",
@@ -695,15 +707,18 @@ pub static ZH: Strings = Strings {
 
     run_section: "运行",
     pause: "暂停",
-    pause_hint: "开关按钮:按下状态即表示已暂停",
-    restart: "重新开始",
+    pause_hint: "暂停 tick 推进,蚂蚁原地停住",
+    resume: "继续",
+    resume_hint: "从暂停处继续推进 tick",
+    restart: "重置",
     restart_hint: "重新生成食物、清空信息素、统计归零",
     clear_trails: "清空信息素",
     clear_trails_hint: "把所有信息素场清零,蚂蚁不动",
     ticks_per_frame: "每帧 tick 数",
     ticks_per_frame_hint: "快进:tick 调度每帧多跑几次而已",
 
-    presets_section: "预设",
+    presets_section: "预设与场景",
+    presets_hint: "预设只调行为参数;场景还会重建地图(墙与食物),并可存成文件分享",
     preset_brief: "任务书默认",
     preset_brief_hint: "蒸发率 0.10,项目任务书的参数",
     preset_no_pheromone: "无信息素",
@@ -726,12 +741,12 @@ pub static ZH: Strings = Strings {
     apply_size: "应用尺寸",
     apply_size_hint: "重新分配信息素纹理并重建场景,会丢弃当前这局",
     starting_piles: "初始食物堆",
-    starting_piles_hint: "重启后生效;点地图可以加更多",
+    starting_piles_hint: "重置后生效;点地图可以加更多",
     food_per_pile: "每堆食物量",
     pile_radius: "食物堆半径",
     units_on_map: "单位食物在地图上",
 
-    mouse_section: "鼠标",
+    mouse_section: "地图编辑",
     enable_map_editing: "启用地图编辑",
     brush_radius: "刷子半径",
     mouse_help: "左键应用当前模式;右键擦除食物和墙",
@@ -750,7 +765,7 @@ pub static ZH: Strings = Strings {
     thickness: "墙厚",
     wall_density: "墙密度",
     wall_cells: "个墙格",
-    draw_your_own: "用上面的「鼠标」区自己画",
+    draw_your_own: "用上面的「地图编辑」区自己画",
 
     homing_section: "归巢导航",
     homing_mode: "模式",
@@ -812,6 +827,7 @@ pub static ZH: Strings = Strings {
     food_trail: "食物信息素",
     home_trail: "归巢信息素",
     color_legend: "0 号窝:绿 / 紫    1 号窝:琥珀 / 青",
+    legend_actors: "蚂蚁:白 / 橙    捕食者:红    墙:灰",
     language: "语言",
 
     scenario_section: "场景",
@@ -1057,6 +1073,8 @@ mod tests {
                 fps,
                 run_section,
                 pause,
+                resume,
+                resume_hint,
                 restart,
                 restart_hint,
                 clear_trails,
@@ -1066,6 +1084,7 @@ mod tests {
                 pause,
                 pause_hint,
                 presets_section,
+                presets_hint,
                 preset_brief,
                 preset_brief_hint,
                 preset_no_pheromone,
@@ -1156,6 +1175,7 @@ mod tests {
                 food_trail,
                 home_trail,
                 color_legend,
+                legend_actors,
                 language,
                 help_text,
                 running_fmt,

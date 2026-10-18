@@ -296,9 +296,15 @@ fn control_panel(
                 run_controls(ui, &mut config, &mut commands, s);
                 ui.separator();
 
+                // Presets and scenarios live in one section on purpose: they
+                // are two levels of the same idea (a named starting point),
+                // and splitting them made them read as competing features.
+                // The hint line says what each level covers.
                 egui::CollapsingHeader::new(egui::RichText::new(s.presets_section).strong())
                     .default_open(true)
                     .show(ui, |ui| {
+                        ui.small(s.presets_hint);
+                        ui.add_space(2.0);
                         egui::Grid::new("presets").num_columns(1).show(ui, |ui| {
                             for preset in Preset::ALL {
                                 if ui
@@ -316,14 +322,7 @@ fn control_panel(
                                 ui.end_row();
                             }
                         });
-                    });
-                ui.separator();
-
-                world_controls(ui, &mut config, &mut commands, &mut draft_size, s);
-                ui.separator();
-                egui::CollapsingHeader::new(egui::RichText::new(s.scenario_section).strong())
-                    .default_open(true)
-                    .show(ui, |ui| {
+                        ui.separator();
                         scenario_controls(
                             ui,
                             &config,
@@ -336,6 +335,8 @@ fn control_panel(
                             &mut scenario_path,
                         );
                     });
+                ui.separator();
+                world_controls(ui, &mut config, &mut commands, &stats, &mut draft_size, s);
                 ui.separator();
                 interact_controls(ui, &mut interaction, s);
                 ui.separator();
@@ -567,21 +568,46 @@ fn run_controls(
 ) {
     ui.label(egui::RichText::new(s.run_section).strong());
     ui.horizontal(|ui| {
-        // One toggle instead of a checkbox plus label: pressed = paused.
-        if ui
-            .add(egui::Button::new(s.pause).small().selected(config.paused))
-            .on_hover_text(s.pause_hint)
-            .clicked()
-        {
+        // Square icon buttons, media-player style: the glyph shows the action
+        // the click will perform, the tooltip spells it out. The glyphs come
+        // from egui's built-in emoji-icon-font (coverage verified for
+        // U+23F8 pause, U+25B6 play, U+21BA reset, U+1F5D1 trash).
+        let icon_button = |ui: &mut egui::Ui, glyph: &str, tip: String| -> egui::Response {
+            ui.add_sized(
+                [30.0, 22.0],
+                egui::Button::new(egui::RichText::new(glyph).size(14.0)),
+            )
+            .on_hover_text(tip)
+        };
+
+        // Pause/resume is one two-state button: the glyph and the tooltip both
+        // show the action the click will perform - pause while running, resume
+        // while paused - each state with its own matching hint.
+        let (pause_glyph, pause_tip, pause_hint) = if config.paused {
+            ("\u{25B6}", s.resume, s.resume_hint)
+        } else {
+            ("\u{23F8}", s.pause, s.pause_hint)
+        };
+        if icon_button(ui, pause_glyph, format!("{} - {}", pause_tip, pause_hint)).clicked() {
             config.paused = !config.paused;
         }
-        if ui.button(s.restart).on_hover_text(s.restart_hint).clicked() {
+        if icon_button(
+            ui,
+            "\u{21BA}",
+            format!("{} - {}", s.restart, s.restart_hint),
+        )
+        .clicked()
+        {
+            // "Restart" is really a reset: the same world is rebuilt from the
+            // current config, nothing is remembered.
             commands.restart = true;
         }
-        if ui
-            .button(s.clear_trails)
-            .on_hover_text(s.clear_trails_hint)
-            .clicked()
+        if icon_button(
+            ui,
+            "\u{1F5D1}",
+            format!("{} - {}", s.clear_trails, s.clear_trails_hint),
+        )
+        .clicked()
         {
             commands.clear_pheromones = true;
         }
@@ -594,6 +620,7 @@ fn world_controls(
     ui: &mut egui::Ui,
     config: &mut SimConfig,
     commands: &mut SimCommands,
+    stats: &SimStats,
     draft: &mut Option<(usize, usize)>,
     s: &Strings,
 ) {
@@ -668,12 +695,15 @@ fn world_controls(
                 egui::Slider::new(&mut config.food_per_pile, 0.0..=20_000.0).text(s.food_per_pile),
             );
             ui.add(egui::Slider::new(&mut config.food_pile_radius, 2.0..=24.0).text(s.pile_radius));
+            // Live recovery fraction, not a constant: the same line that says
+            // how much food the map starts with says how much has come home.
             ui.label(
                 egui::RichText::new(format!(
-                    "{:.0} {} ({:.1}% recovered)",
+                    "{:.0} {} ({:.1}% {})",
                     config.food_per_pile * config.food_pile_count as f32,
                     s.units_on_map,
-                    0.0
+                    stats.recovery_fraction() * 100.0,
+                    s.delivered
                 ))
                 .small()
                 .color(egui::Color32::from_gray(140)),
@@ -907,22 +937,28 @@ fn interact_controls(ui: &mut egui::Ui, interaction: &mut InteractionState, s: &
     egui::CollapsingHeader::new(s.mouse_section)
         .default_open(true)
         .show(ui, |ui| {
+            // The master switch gates everything below: while map editing is
+            // off, the mode buttons and the brush sliders grey out, and the
+            // pointer handler in `interact.rs` ignores the map entirely.
             ui.checkbox(&mut interaction.enabled, s.enable_map_editing);
-            ui.horizontal_wrapped(|ui| {
-                for mode in PaintMode::ALL {
-                    ui.selectable_value(&mut interaction.mode, mode, mode.label_for(s));
-                }
-            });
-            ui.add(
-                egui::Slider::new(&mut interaction.brush_radius, 2.0..=24.0).text(s.brush_radius),
-            );
-            if interaction.mode == PaintMode::Food {
+            ui.add_enabled_ui(interaction.enabled, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for mode in PaintMode::ALL {
+                        ui.selectable_value(&mut interaction.mode, mode, mode.label_for(s));
+                    }
+                });
                 ui.add(
-                    egui::Slider::new(&mut interaction.pile_amount, 100.0..=10_000.0)
-                        .text(s.food_per_pile),
+                    egui::Slider::new(&mut interaction.brush_radius, 2.0..=24.0)
+                        .text(s.brush_radius),
                 );
-            }
-            ui.small(s.mouse_help);
+                if interaction.mode == PaintMode::Food {
+                    ui.add(
+                        egui::Slider::new(&mut interaction.pile_amount, 100.0..=10_000.0)
+                            .text(s.food_per_pile),
+                    );
+                }
+                ui.small(s.mouse_help);
+            });
         });
 }
 
@@ -1196,6 +1232,6 @@ fn display_controls(ui: &mut egui::Ui, view: &mut PheromoneView, s: &Strings) {
                 }
             });
             ui.small(s.color_legend);
-            ui.small("ants: white / orange    predators: red    walls: grey");
+            ui.small(s.legend_actors);
         });
 }
