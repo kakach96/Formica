@@ -167,6 +167,8 @@ pub struct Strings {
 
     // ---- window app: obstacles --------------------------------------------
     pub obstacles_section: &'static str,
+    /// Label above the preset dropdown.
+    pub obstacle_kind: &'static str,
     pub obstacle_none: &'static str,
     pub obstacle_u_wall: &'static str,
     pub obstacle_blocks: &'static str,
@@ -472,6 +474,7 @@ pub static EN: Strings = Strings {
     mode_erase: "erase",
 
     obstacles_section: "Obstacles",
+    obstacle_kind: "obstacle kind",
     obstacle_none: "open field",
     obstacle_u_wall: "U-shaped wall",
     obstacle_blocks: "scattered blocks",
@@ -805,6 +808,7 @@ pub static ZH: Strings = Strings {
     mode_erase: "擦除",
 
     obstacles_section: "障碍物",
+    obstacle_kind: "障碍物类型",
     obstacle_none: "空地",
     obstacle_u_wall: "U 形墙",
     obstacle_blocks: "随机方块",
@@ -1193,6 +1197,7 @@ mod tests {
                 mode_draw_wall,
                 mode_erase,
                 obstacles_section,
+                obstacle_kind,
                 obstacle_none,
                 obstacle_u_wall,
                 obstacle_blocks,

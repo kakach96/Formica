@@ -1129,23 +1129,49 @@ fn obstacle_controls(
         .default_open(false)
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
+                ui.label(s.obstacle_kind);
                 let is_none = matches!(config.obstacle_preset, ObstaclePreset::None);
-                if ui.selectable_label(is_none, s.obstacle_none).clicked() {
-                    config.obstacle_preset = ObstaclePreset::None;
-                }
                 let is_wall = matches!(config.obstacle_preset, ObstaclePreset::UWall { .. });
-                if ui.selectable_label(is_wall, s.obstacle_u_wall).clicked() && !is_wall {
-                    config.obstacle_preset = ObstaclePreset::UWall {
-                        arm: config.food_pile_radius + 8.0,
-                        gap: config.food_pile_radius * 2.0 + 4.0,
-                        thickness: 3.0,
-                    };
-                }
                 let is_blocks =
                     matches!(config.obstacle_preset, ObstaclePreset::RandomBlocks { .. });
-                if ui.selectable_label(is_blocks, s.obstacle_blocks).clicked() && !is_blocks {
-                    config.obstacle_preset = ObstaclePreset::RandomBlocks { density: 0.15 };
-                }
+                let selected_text = if is_wall {
+                    s.obstacle_u_wall
+                } else if is_blocks {
+                    s.obstacle_blocks
+                } else {
+                    s.obstacle_none
+                };
+                egui::ComboBox::from_id_salt("formica_obstacle_preset")
+                    .selected_text(selected_text)
+                    .show_ui(ui, |ui| {
+                        // None / u-wall carry hints; the blocks entry has none.
+                        if ui
+                            .selectable_label(is_none, s.obstacle_none)
+                            .on_hover_text(s.obstacle_none_hint)
+                            .clicked()
+                            && !is_none
+                        {
+                            config.obstacle_preset = ObstaclePreset::None;
+                        }
+                        // Size the U to the pile it wraps, so the preset works
+                        // on any map.
+                        if ui
+                            .selectable_label(is_wall, s.obstacle_u_wall)
+                            .on_hover_text(s.obstacle_u_wall_hint)
+                            .clicked()
+                            && !is_wall
+                        {
+                            config.obstacle_preset = ObstaclePreset::UWall {
+                                arm: config.food_pile_radius + 8.0,
+                                gap: config.food_pile_radius * 2.0 + 4.0,
+                                thickness: 3.0,
+                            };
+                        }
+                        if ui.selectable_label(is_blocks, s.obstacle_blocks).clicked() && !is_blocks
+                        {
+                            config.obstacle_preset = ObstaclePreset::RandomBlocks { density: 0.15 };
+                        }
+                    });
             });
 
             match &mut config.obstacle_preset {
@@ -1203,16 +1229,25 @@ fn homing_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
                     (HomingMode::WallSense, s.homing_wall, s.homing_wall_hint),
                     (HomingMode::FlowField, s.homing_flow, s.homing_flow_hint),
                 ];
-                for (mode, label, hint) in modes {
-                    let selected = config.homing_mode == mode;
-                    if ui
-                        .selectable_label(selected, label)
-                        .on_hover_text(hint)
-                        .clicked()
-                    {
-                        config.homing_mode = mode;
-                    }
-                }
+                let selected_text = modes
+                    .iter()
+                    .find(|(mode, ..)| *mode == config.homing_mode)
+                    .map(|(_, option, _)| *option)
+                    .unwrap_or_default();
+                egui::ComboBox::from_id_salt("formica_homing_mode")
+                    .selected_text(selected_text)
+                    .show_ui(ui, |ui| {
+                        for (mode, option, hint) in modes {
+                            let is_selected = config.homing_mode == mode;
+                            if ui
+                                .selectable_label(is_selected, option)
+                                .on_hover_text(hint)
+                                .clicked()
+                            {
+                                config.homing_mode = mode;
+                            }
+                        }
+                    });
             });
         });
 }
@@ -1289,10 +1324,6 @@ fn ant_controls(
     egui::CollapsingHeader::new(egui::RichText::new(s.ants_section).strong())
         .default_open(false)
         .show(ui, |ui| {
-            // The exit distribution leads the section: it is about the
-            // initial state, the sliders below tune the ongoing behaviour.
-            exit_controls(ui, config, commands, s);
-
             let mut ant_count = config.ant_count as u32;
             if labelled_slider(
                 ui,
@@ -1309,7 +1340,7 @@ fn ant_controls(
                 ui,
                 s.speed,
                 "",
-                egui::Slider::new(&mut config.speed, 0.5..=6.0),
+                egui::Slider::new(&mut config.speed, 0.1..=6.0),
             );
             labelled_slider(
                 ui,
@@ -1353,6 +1384,12 @@ fn ant_controls(
                 s.individuality_hint,
                 egui::Slider::new(&mut config.individuality, 0.0..=1.5),
             );
+
+            // The exit distribution trails the section behind a separator,
+            // presets-and-scenarios style: everything above tunes the
+            // ongoing behaviour, the block below is the initial state.
+            ui.separator();
+            exit_controls(ui, config, commands, s);
         });
 }
 
@@ -1377,19 +1414,29 @@ fn exit_controls(
                     (SpawnMode::Disk, s.exit_disk, s.exit_disk_hint),
                     (SpawnMode::Jet, s.exit_jet, s.exit_jet_hint),
                 ];
-                for (mode, label, hint) in modes {
-                    let selected = config.spawn_mode == mode;
-                    if ui
-                        .selectable_label(selected, label)
-                        .on_hover_text(hint)
-                        .clicked()
-                    {
-                        if !selected {
-                            config.spawn_mode = mode;
-                            commands.restart = true;
+                let selected = config.spawn_mode;
+                let selected_text = modes
+                    .iter()
+                    .find(|(mode, ..)| *mode == selected)
+                    .map(|(_, option, _)| *option)
+                    .unwrap_or_default();
+                egui::ComboBox::from_id_salt("formica_exit_mode")
+                    .selected_text(selected_text)
+                    .show_ui(ui, |ui| {
+                        for (mode, option, hint) in modes {
+                            let is_selected = config.spawn_mode == mode;
+                            if ui
+                                .selectable_label(is_selected, option)
+                                .on_hover_text(hint)
+                                .clicked()
+                            {
+                                if !is_selected {
+                                    config.spawn_mode = mode;
+                                    commands.restart = true;
+                                }
+                            }
                         }
-                    }
-                }
+                    });
             });
 
             if config.spawn_mode == SpawnMode::Jet {
