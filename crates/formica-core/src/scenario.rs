@@ -72,6 +72,16 @@ pub struct ScenarioOverrides {
     pub predator_catch: Option<f32>,
     /// How returning ants navigate home: `path`, `wall` or `flow`.
     pub homing: Option<String>,
+    /// How ants leave the nest: `disk` or `jet`.
+    pub spawn_mode: Option<String>,
+    /// Jet direction in degrees, 0 = east, counter-clockwise.
+    pub spawn_direction: Option<f32>,
+    /// Jet cone width in degrees, 0..=360 (360 = the disk again).
+    pub spawn_spread: Option<f32>,
+    /// Ants emerging per tick, 0 = all at once.
+    pub spawn_rate: Option<usize>,
+    /// Population at tick 0 when the rate is above 0.
+    pub spawn_initial: Option<usize>,
     /// RNG seed. Present in *exported* scenarios so a file reproduces the
     /// run bit for bit; a handwritten scenario may omit it and let `--seed`
     /// or the app's seed box decide. The CLI's `--seed` flag still wins over
@@ -273,6 +283,10 @@ impl Scenario {
             predator_speed = predator_speed,
             predator_sense = predator_sense,
             predator_catch_radius = predator_catch,
+            spawn_direction = spawn_direction,
+            spawn_spread = spawn_spread,
+            spawn_rate = spawn_rate,
+            spawn_initial = spawn_initial,
             seed = seed,
         );
         if let Some(raw) = &o.obstacles {
@@ -283,6 +297,11 @@ impl Scenario {
         if let Some(raw) = &o.homing {
             if let Some(mode) = crate::config::HomingMode::parse(raw) {
                 config.homing_mode = mode;
+            }
+        }
+        if let Some(raw) = &o.spawn_mode {
+            if let Some(mode) = crate::config::SpawnMode::parse(raw) {
+                config.spawn_mode = mode;
             }
         }
         config.custom_walls = self.walls.clone();
@@ -359,6 +378,11 @@ impl Scenario {
                 predator_sense: Some(config.predator_sense),
                 predator_catch: Some(config.predator_catch_radius),
                 homing: Some(config.homing_mode.keyword().to_string()),
+                spawn_mode: Some(config.spawn_mode.keyword().to_string()),
+                spawn_direction: Some(config.spawn_direction),
+                spawn_spread: Some(config.spawn_spread),
+                spawn_rate: Some(config.spawn_rate),
+                spawn_initial: Some(config.spawn_initial),
                 seed: Some(config.seed),
             },
             walls: Vec::new(),
@@ -556,6 +580,35 @@ mod tests {
         let mut config = SimConfig::default();
         scenario.apply(&mut config);
         assert_eq!(config.seed, 424_242);
+    }
+
+    /// Exit-distribution overrides land on the config and survive an export
+    /// → import cycle - a shareable "jet out of the nest" run must jet on
+    /// someone else's machine too.
+    #[test]
+    fn spawn_overrides_apply_and_round_trip() {
+        let scenario = Scenario::parse_toml(
+            "name = \"stream\"\n\n[config]\nspawn_mode = \"jet\"\nspawn_direction = 90\n\
+             spawn_spread = 45\nspawn_rate = 5\nspawn_initial = 10\n",
+        )
+        .expect("parse");
+        let mut config = SimConfig::default();
+        scenario.apply(&mut config);
+        assert_eq!(config.spawn_mode, crate::config::SpawnMode::Jet);
+        assert_eq!(config.spawn_direction, 90.0);
+        assert_eq!(config.spawn_spread, 45.0);
+        assert_eq!(config.spawn_rate, 5);
+        assert_eq!(config.spawn_initial, 10);
+
+        let text = Scenario::from_config("stream", "", &config).to_toml_string();
+        assert!(text.contains("spawn_mode = \"jet\""), "text: {text}");
+        let mut rebuilt = SimConfig::default();
+        Scenario::parse_toml(&text)
+            .expect("reparse")
+            .apply(&mut rebuilt);
+        assert_eq!(rebuilt.spawn_mode, crate::config::SpawnMode::Jet);
+        assert_eq!(rebuilt.spawn_rate, 5);
+        assert_eq!(rebuilt.spawn_initial, 10);
     }
 
     /// Hand-painted walls must survive export → import cell for cell.

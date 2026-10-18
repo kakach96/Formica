@@ -109,7 +109,11 @@ pub fn init_simulation(world: &mut World) {
 
     for index in 0..config.colonies() {
         let nest = *nests.get(index);
-        for _ in 0..config.ant_count {
+        // Batched release: only the first instalment leaves the nest here.
+        // `sync_ant_count` grows the population toward `ant_count` at
+        // `spawn_rate` per tick; with the rate at zero this is the full
+        // colony, exactly as it has always been.
+        for _ in 0..config.emerged_per_colony(0) {
             let ant = newborn_ant(AntColony(index), &nest, &mut rng, &config);
             world.spawn(ant);
         }
@@ -164,7 +168,9 @@ pub fn reset_simulation(world: &mut World) {
 
     for index in 0..config.colonies() {
         let nest = *nests.get(index);
-        for _ in 0..config.ant_count {
+        // Same first instalment as `init_simulation`; the release schedule
+        // then plays out through `sync_ant_count`.
+        for _ in 0..config.emerged_per_colony(0) {
             let ant = newborn_ant(AntColony(index), &nest, &mut rng, &config);
             world.spawn(ant);
         }
@@ -379,6 +385,34 @@ mod tests {
         assert_eq!(ants.iter(app.world()).count(), 30);
         let mut predators = app.world_mut().query::<&PredatorMarker>();
         assert_eq!(predators.iter(app.world()).count(), 0);
+    }
+
+    /// Batched release end to end: `run_ticks` grows the colony by
+    /// `spawn_rate` per tick from `spawn_initial`, and a reset rewinds it to
+    /// the first batch, after which the schedule replays from zero.
+    #[test]
+    fn batched_release_trickles_and_resets_to_the_first_batch() {
+        let mut app = headless_app(SimConfig {
+            ant_count: 100,
+            spawn_rate: 10,
+            spawn_initial: 10,
+            ..Default::default()
+        });
+        let count = |app: &mut App| {
+            let mut q = app.world_mut().query::<&AntMarker>();
+            q.iter(app.world()).count()
+        };
+        // During tick N's population sync the stats still say N-1 completed
+        // ticks, so 4 ticks leave 10 + 10*3 ants on the map.
+        run_ticks(&mut app, 4);
+        assert_eq!(count(&mut app), 40);
+        run_ticks(&mut app, 20);
+        assert_eq!(count(&mut app), 100, "the colony never finished emerging");
+
+        reset_simulation(app.world_mut());
+        assert_eq!(count(&mut app), 10);
+        run_ticks(&mut app, 3);
+        assert_eq!(count(&mut app), 30);
     }
 
     /// A reset must pick up a changed map size, however the size got there.

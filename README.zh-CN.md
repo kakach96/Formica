@@ -197,6 +197,10 @@ cargo run -p formica-headless --release -- --obstacles u-wall --ticks 2500
 cargo run -p formica-headless --release -- --predators 6 --food-per-pile 4000
 cargo run -p formica-headless --release -- --colonies 2 --ants 250
 
+# 出巢分布:朝一个方向扇形喷出,或分批陆续出巢
+cargo run -p formica-headless --release -- --spawn-mode jet --spawn-direction 90 --spawn-spread 45
+cargo run -p formica-headless --release -- --spawn-rate 10 --spawn-initial 20
+
 # 场景:内置名或 TOML 文件;其余参数仍可叠加
 cargo run -p formica-headless --release -- --scenario labyrinth
 cargo run -p formica-headless --release -- --scenario my-run.toml
@@ -254,7 +258,7 @@ cargo run -p formica-app --release
 | Obstacles | 空地 / U 形墙 / 随机方块；U 形墙尺寸、方块密度 |
 | Colonies | **蚁群数量 1–2**、两巢间距 |
 | Pheromones | 蒸发率（对数滑块）、撒放强度、撒放核半径、浓度上限 |
-| Ants | 每窝蚂蚁数、速度、感知半径、触角张角、采样半径、随机游走、循迹增益、归巢气味引导、**个体差异** |
+| Ants | 每窝蚂蚁数、**出巢分布**(均匀圆盘 / 定向喷出:方向 + 扇角;分批出巢:每 tick 出巢数 + 初始数量)、速度、感知半径、触角张角、采样半径、随机游走、循迹增益、归巢气味引导、**个体差异** |
 | Crowding | **堵塞阈值、缓解步长**，以及实时的"最挤的 4×4 方块里有多少只蚂蚁"读数 |
 | Predators | **捕食者数量**、速度、视野、捕获半径、游走强度 |
 | Display | 食物/归巢信息素增益、显隐 |
@@ -323,6 +327,11 @@ cargo test -p formica-core --release -- --ignored --nocapture   # 完整 5000 ti
 | `ant_count` | 500 | `--ants` | **每窝**蚂蚁数（两窝时总数翻倍） |
 | `colony_count` | 1 | `--colonies` | 竞争蚁群数量，1–2 |
 | `nest_orbit` | 55 | `--nest-orbit` | 两窝时巢穴到地图中心的距离 |
+| `spawn_mode` | disk | `--spawn-mode` | 蚂蚁如何出巢:`disk`(均匀圆盘、朝向外侧——任务书行为)/ `jet`(绕一个方向的扇形喷出) |
+| `spawn_direction` | 0 | `--spawn-direction` | 喷出方向(度),0 = 右(+x),逆时针增大 |
+| `spawn_spread` | 60 | `--spawn-spread` | 喷出扇角(度),0–360;360° 时分布与均匀圆盘一致 |
+| `spawn_rate` | 0 | `--spawn-rate` | 每 tick 从巢中出巢的蚂蚁数(0 = 一次全出) |
+| `spawn_initial` | 0 | `--spawn-initial` | `spawn_rate` > 0 时 tick 0 的蚁群数量;其余按速率陆续出巢 |
 | `width` × `height` | 256×256 | `--width/--height` | 地图尺寸 |
 | `evaporation_rate` | 0.1 | `--evaporation` | 每 tick `c *= (1 - r)` |
 | `sensor_distance` | 3.0 | `--sensor-distance` | 感知半径（格） |

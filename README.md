@@ -181,6 +181,10 @@ cargo run -p formica-headless --release -- --obstacles u-wall --ticks 2500
 cargo run -p formica-headless --release -- --predators 6 --food-per-pile 4000
 cargo run -p formica-headless --release -- --colonies 2 --ants 250
 
+# Exit distribution: spray the colony out toward one bearing, in batches
+cargo run -p formica-headless --release -- --spawn-mode jet --spawn-direction 90 --spawn-spread 45
+cargo run -p formica-headless --release -- --spawn-rate 10 --spawn-initial 20
+
 # A scenario: built-in name or a TOML file; later flags still override it
 cargo run -p formica-headless --release -- --scenario labyrinth
 cargo run -p formica-headless --release -- --scenario my-run.toml
@@ -240,7 +244,7 @@ Left panel:
 | Obstacles | open field / U-shaped wall / scattered blocks; sizes and density |
 | Colonies | **colony count 1–2**, nest spacing |
 | Pheromones | evaporation (log slider), deposit strength, kernel radius, cell ceiling |
-| Ants | ants per colony, speed, perception radius, antenna spread, box radius, random walk, trail gain, home-trail guidance, **individuality** |
+| Ants | ants per colony, **exit distribution** (uniform disk / directed jet: direction + spread; batched release: emerge-per-tick + initial count), speed, perception radius, antenna spread, box radius, random walk, trail gain, home-trail guidance, **individuality** |
 | Crowding | **jam threshold, relief step**, plus a live "ants in the busiest 4×4 bin" readout |
 | Predators | **count**, speed, sight radius, catch radius, wander |
 | Display | food/home trail gains and visibility |
@@ -299,6 +303,11 @@ Versions: **Bevy 0.19.1** + **bevy_egui 0.42.0** (egui 0.36).
 | `ant_count` | 500 | `--ants` | ants **per colony** (doubled with two colonies) |
 | `colony_count` | 1 | `--colonies` | competing colonies, 1–2 |
 | `nest_orbit` | 55 | `--nest-orbit` | nest distance from map centre with two colonies |
+| `spawn_mode` | disk | `--spawn-mode` | how ants leave the nest: `disk` (uniform disc, radial headings — brief behaviour) / `jet` (cone around one bearing) |
+| `spawn_direction` | 0 | `--spawn-direction` | jet bearing in degrees, 0 = east (+x), counter-clockwise |
+| `spawn_spread` | 60 | `--spawn-spread` | jet cone width in degrees, 0–360; at 360 the distribution is the uniform disk again |
+| `spawn_rate` | 0 | `--spawn-rate` | ants emerging from the nest per tick (0 = all at once) |
+| `spawn_initial` | 0 | `--spawn-initial` | population at tick 0 while `spawn_rate` > 0; the rest emerges at the rate |
 | `width` × `height` | 256×256 | `--width/--height` | map size |
 | `evaporation_rate` | 0.1 | `--evaporation` | per tick, `c *= (1 - r)` |
 | `sensor_distance` | 3.0 | `--sensor-distance` | perception radius (cells) |

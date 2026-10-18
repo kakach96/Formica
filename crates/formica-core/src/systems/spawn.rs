@@ -5,12 +5,20 @@
 //! tick; interactively it is what makes the "colony size" slider live, what
 //! replaces ants eaten by predators, and what removes a whole colony's ants
 //! when the colony count is dropped back to one.
+//!
+//! The target is [`SimConfig::emerged_per_colony`] rather than `ant_count`
+//! directly, which is how batched release works: with `spawn_rate > 0` the
+//! target grows by `spawn_rate` per tick, so both the initial trickle out of
+//! the nest and post-predation replacements draw from the same release
+//! budget, and a colony that has not finished emerging has no spare ants to
+//! hand out.
 
 use bevy_ecs::prelude::*;
 
 use crate::ant::{newborn_ant, AntColony, AntMarker};
 use crate::config::SimConfig;
 use crate::grid::MAX_COLONIES;
+use crate::metrics::SimStats;
 use crate::rng::SimRng;
 use crate::world::Nests;
 
@@ -28,20 +36,25 @@ pub fn sync_nests(config: Res<SimConfig>, mut nests: ResMut<Nests>) {
     *nests = Nests::from_config(&config);
 }
 
-/// Spawn or despawn ants until every colony matches the configuration.
+/// Spawn or despawn ants until every colony matches the release schedule.
 ///
-/// Any ant that is not counted toward a live colony's quota is surplus -
-/// including every ant of a colony that no longer exists - so reducing the
-/// colony count cleans up after itself with no special case.
+/// Any ant that is not counted toward a live colony's emerged quota is
+/// surplus - including every ant of a colony that no longer exists - so
+/// reducing the colony count cleans up after itself with no special case.
+///
+/// The tick comes from `SimStats` (updated after this system in the chain, so
+/// `tick` here is "ticks completed"), which makes the emerged target a pure
+/// function of the schedule - no batching state to reset anywhere.
 pub fn sync_ant_count(
     config: Res<SimConfig>,
     nests: Res<Nests>,
+    stats: Res<SimStats>,
     mut rng: ResMut<SimRng>,
     mut commands: Commands,
     ants: Query<(Entity, &AntColony), With<AntMarker>>,
 ) {
     let colonies = config.colonies();
-    let per_colony = config.ant_count;
+    let per_colony = config.emerged_per_colony(stats.tick);
     let mut kept = [0usize; MAX_COLONIES];
     let mut surplus: Vec<Entity> = Vec::new();
 
@@ -82,6 +95,8 @@ mod tests {
         world.insert_resource(nests);
         world.insert_resource(SimRng::new(1));
         world.insert_resource(config);
+        // The release schedule reads the tick counter out of the stats.
+        world.insert_resource(SimStats::default());
         world
     }
 
@@ -168,5 +183,56 @@ mod tests {
             seen[colony.index()] += 1;
         }
         assert_eq!(seen, [6, 6]);
+    }
+
+    /// Batched release: the population starts at `spawn_initial` and grows by
+    /// `spawn_rate` per tick until it reaches `ant_count`, then stays put.
+    /// The control arm (rate 0) still settles on the first run.
+    #[test]
+    fn the_population_arrives_at_the_release_rate() {
+        let mut world = setup(SimConfig {
+            ant_count: 100,
+            spawn_rate: 10,
+            spawn_initial: 20,
+            ..Default::default()
+        });
+        world.run_system_once(sync_ant_count).unwrap();
+        assert_eq!(
+            snapshot(&mut world),
+            (20, 0),
+            "tick 0 released more than the initial batch"
+        );
+
+        world.resource_mut::<SimStats>().tick = 1;
+        world.run_system_once(sync_ant_count).unwrap();
+        assert_eq!(snapshot(&mut world), (30, 0));
+
+        world.resource_mut::<SimStats>().tick = 7;
+        world.run_system_once(sync_ant_count).unwrap();
+        assert_eq!(snapshot(&mut world), (90, 0));
+
+        // Fully emerged: further runs are a no-op, not an overshoot.
+        world.resource_mut::<SimStats>().tick = 8;
+        world.run_system_once(sync_ant_count).unwrap();
+        assert_eq!(snapshot(&mut world), (100, 0));
+        world.resource_mut::<SimStats>().tick = 100;
+        world.run_system_once(sync_ant_count).unwrap();
+        assert_eq!(snapshot(&mut world), (100, 0));
+    }
+
+    /// Replacements for eaten ants also draw from the release budget: a
+    /// colony mid-emergence tops out at the emerged target, not the full
+    /// configuration.
+    #[test]
+    fn replacements_cannot_exceed_the_emerged_budget() {
+        let mut world = setup(SimConfig {
+            ant_count: 50,
+            spawn_rate: 10,
+            spawn_initial: 5,
+            ..Default::default()
+        });
+        world.resource_mut::<SimStats>().tick = 2;
+        world.run_system_once(sync_ant_count).unwrap();
+        assert_eq!(snapshot(&mut world), (25, 0));
     }
 }

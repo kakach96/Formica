@@ -271,6 +271,16 @@ impl Options {
                         })?;
                 }
 
+                "--spawn-mode" => {
+                    let raw = value(args, &mut i, flag, s)?;
+                    opts.config.spawn_mode = formica_core::config::SpawnMode::parse(raw)
+                        .ok_or_else(|| s.err_unknown_spawn.replace("{kind}", raw))?;
+                }
+                "--spawn-direction" => opts.config.spawn_direction = number(args, &mut i, flag, s)?,
+                "--spawn-spread" => opts.config.spawn_spread = number(args, &mut i, flag, s)?,
+                "--spawn-rate" => opts.config.spawn_rate = number(args, &mut i, flag, s)?,
+                "--spawn-initial" => opts.config.spawn_initial = number(args, &mut i, flag, s)?,
+
                 "--sample-interval" => opts.config.sample_interval = number(args, &mut i, flag, s)?,
                 "--report-every" => opts.report_every = number(args, &mut i, flag, s)?,
                 "--csv" => opts.csv = Some(value(args, &mut i, flag, s)?.to_string()),
@@ -544,6 +554,24 @@ fn print_report(opts: &Options, outcome: &Outcome) {
     }
     if config.homing_mode != HomingMode::PathIntegration {
         println!("{}  {}", s.report_homing, config.homing_mode.keyword());
+    }
+    if config.spawn_mode != SpawnMode::Disk || config.spawn_rate > 0 {
+        // Values are language-neutral keywords/numbers, like the homing line.
+        let mut exit = match config.spawn_mode {
+            SpawnMode::Disk => "disk".to_string(),
+            SpawnMode::Jet => format!(
+                "jet, dir {:.0}°, spread {:.0}°",
+                config.spawn_direction, config.spawn_spread
+            ),
+        };
+        if config.spawn_rate > 0 {
+            let _ = write!(
+                exit,
+                ", rate {}/tick, initial {}",
+                config.spawn_rate, config.spawn_initial
+            );
+        }
+        println!("{}  {}", s.report_spawn, exit);
     }
     if config.predator_count > 0 {
         println!(

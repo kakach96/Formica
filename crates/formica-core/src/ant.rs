@@ -15,7 +15,7 @@
 
 use bevy_ecs::prelude::*;
 
-use crate::config::SimConfig;
+use crate::config::{SimConfig, SpawnMode};
 use crate::rng::SimRng;
 use crate::world::Nest;
 
@@ -237,7 +237,9 @@ impl AntVigor {
 /// the default `spawn_radius` of 2 cells the whole nest chamber is four cells
 /// across, so any structure finer than that is invisible. The irregularity the
 /// viewer sees comes from what the ants do next - see [`AntVigor`] - not from
-/// where they started.
+/// where they started. Both spawn modes scatter positions the same way; the
+/// modes differ only in the heading, which keeps a full-circle jet cone
+/// statistically equal to the disk.
 pub fn newborn_ant(
     colony: AntColony,
     nest: &Nest,
@@ -265,10 +267,22 @@ pub fn newborn_ant(
     // every ant is half of why the colony used to expand as a hollow ring: with
     // one shared speed and one shared direction the disc becomes an annulus,
     // and stays one until the heading jitter has had time to decorrelate it.
-    let outward = if r > 1.0e-3 {
-        angle
-    } else {
-        rng.range(0.0, std::f32::consts::TAU)
+    let outward = match config.spawn_mode {
+        // The ±1 rad jitter below is shared by both modes, so a jet cone of
+        // `spawn_spread` degrees actually spans spread + 2 rad of bearings -
+        // wide cones are soft-edged, which is what a spray should look like.
+        SpawnMode::Disk => {
+            if r > 1.0e-3 {
+                angle
+            } else {
+                rng.range(0.0, std::f32::consts::TAU)
+            }
+        }
+        SpawnMode::Jet => {
+            let direction = config.spawn_direction.to_radians();
+            let half = config.spawn_spread.max(0.0).to_radians() * 0.5;
+            direction + rng.range(-half, half)
+        }
     };
 
     (
@@ -439,6 +453,85 @@ mod tests {
         assert_eq!(
             exactly_radial, 0,
             "{exactly_radial}/{n} ants left dead straight"
+        );
+    }
+
+    /// A jet keeps every departure bearing inside the configured cone (plus
+    /// the shared ±1 rad jitter), while positions stay on the usual disc.
+    #[test]
+    fn jet_departures_stay_inside_the_cone() {
+        let nest = Nest {
+            x: 50.0,
+            y: 50.0,
+            radius: 4.0,
+        };
+        let config = SimConfig {
+            spawn_mode: SpawnMode::Jet,
+            spawn_direction: 90.0,
+            spawn_spread: 60.0,
+            spawn_radius: 20.0,
+            ..config()
+        };
+        let direction = config.spawn_direction.to_radians();
+        let half = config.spawn_spread.to_radians() * 0.5;
+        // The disk's anti-annulus jitter (±1 rad) is shared by both modes, so
+        // the cone test must allow for it.
+        let tolerance = half + 1.0 + 1.0e-3;
+        let mut rng = SimRng::new(13);
+
+        let n = 2_000;
+        for _ in 0..n {
+            let (_, _, pos, heading, _, _, _, _) =
+                newborn_ant(AntColony(0), &nest, &mut rng, &config);
+            let d = (pos.x - nest.x).hypot(pos.y - nest.y);
+            assert!(d <= config.spawn_radius + 1e-3, "spawned {d} off the disc");
+            let offset = wrap_angle(heading.angle - direction).abs();
+            assert!(
+                offset <= tolerance,
+                "bearing {offset} rad outside a ±{half} rad cone"
+            );
+        }
+    }
+
+    /// A full-circle cone is the disk's heading distribution: bearings must
+    /// cover both half-planes around the jet direction, and a narrow cone
+    /// must not. (Unsaturated comparison: the control arm still shows the
+    /// narrow behaviour.)
+    #[test]
+    fn a_full_circle_jet_covers_every_bearing() {
+        let nest = Nest {
+            x: 50.0,
+            y: 50.0,
+            radius: 4.0,
+        };
+        let jet = |spread: f32| SimConfig {
+            spawn_mode: SpawnMode::Jet,
+            spawn_direction: 0.0,
+            spawn_spread: spread,
+            ..config()
+        };
+        let bearings = |config: &SimConfig| {
+            let mut rng = SimRng::new(17);
+            let n = 2_000;
+            let mut behind = 0;
+            for _ in 0..n {
+                let (_, _, _, heading, _, _, _, _) =
+                    newborn_ant(AntColony(0), &nest, &mut rng, config);
+                // "Behind" = the half-plane pointing away from the jet
+                // direction; a narrow cone never reaches it.
+                if wrap_angle(heading.angle).abs() > std::f32::consts::FRAC_PI_2 {
+                    behind += 1;
+                }
+            }
+            behind as f64 / n as f64
+        };
+
+        let spread_beam = bearings(&jet(0.0));
+        assert_eq!(spread_beam, 0.0, "a 0° cone sprayed ants backwards");
+        let spread_full = bearings(&jet(360.0));
+        assert!(
+            (0.35..0.65).contains(&spread_full),
+            "a 360° cone left {spread_full} of ants pointing backwards"
         );
     }
 }

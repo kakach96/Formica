@@ -128,6 +128,42 @@ impl HomingMode {
     }
 }
 
+/// How ants leave the nest when they spawn.
+///
+/// The two modes differ only in the *heading* ants get: positions always
+/// scatter uniformly over the `spawn_radius` disc. That shared geometry is
+/// what makes a 360° jet cone statistically the same colony as the disk - so
+/// `Jet` with a full-circle spread is a valid "no-op" way to spell the disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SpawnMode {
+    /// The brief's distribution: ants face radially outward from the nest
+    /// (plus the usual ±1 rad jitter). Bit-identical to historical runs.
+    #[default]
+    Disk,
+    /// Directed jet: every ant leaves inside a cone of `spawn_spread`
+    /// degrees around `spawn_direction`, whatever its position on the disc.
+    Jet,
+}
+
+impl SpawnMode {
+    /// The keyword used by the CLI flag and scenario TOML field.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            SpawnMode::Disk => "disk",
+            SpawnMode::Jet => "jet",
+        }
+    }
+
+    /// Parse a CLI/TOML keyword; `parse` accepts the spellings users type.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "disk" | "uniform" | "radial" | "circle" => Some(SpawnMode::Disk),
+            "jet" | "directed" | "cone" | "spray" => Some(SpawnMode::Jet),
+            _ => None,
+        }
+    }
+}
+
 /// One axis-aligned wall rectangle, in cells.
 ///
 /// A scenario's custom map is a list of these, stamped on top of the preset.
@@ -179,6 +215,30 @@ pub struct SimConfig {
     pub nest_radius: f32,
     /// Radius of the disc ants are scattered in when they spawn.
     pub spawn_radius: f32,
+    /// How ants leave the nest. See [`SpawnMode`].
+    ///
+    /// The default (`Disk`) is the brief's uniform disc with radial headings,
+    /// bit-identical to every historical run.
+    pub spawn_mode: SpawnMode,
+    /// Direction of a [`SpawnMode::Jet`] exit, in degrees.
+    /// `0` points east (+x); angles increase counter-clockwise, so `90` is up.
+    pub spawn_direction: f32,
+    /// Full width of the jet cone, in degrees, 0..=360.
+    ///
+    /// At 360 the cone covers the whole circle and the heading distribution
+    /// is statistically the uniform disk again; at 0 every ant leaves on one
+    /// exact bearing (plus the shared ±1 rad jitter).
+    pub spawn_spread: f32,
+    /// Ants emerging from the nest **per tick**. `0` = all ants at once.
+    ///
+    /// Above zero the colony opens with [`SimConfig::spawn_initial`] ants and
+    /// the configured population arrives at this rate - new ants appear on
+    /// the nest disc exactly like post-predation replacements do.
+    pub spawn_rate: usize,
+    /// Population present at tick 0 when [`SimConfig::spawn_rate`] is above
+    /// zero; the rest of the colony emerges at the rate. Ignored when the
+    /// rate is zero (everything leaves at once), and clamped to `ant_count`.
+    pub spawn_initial: usize,
     /// Spread of the per-ant behaviour traits, as the sigma of a log-normal.
     ///
     /// `0.0` makes every ant identical, which is what makes a colony expand as
@@ -317,6 +377,11 @@ impl Default for SimConfig {
             nest_orbit: 55.0,
             nest_radius: 4.0,
             spawn_radius: 2.0,
+            spawn_mode: SpawnMode::Disk,
+            spawn_direction: 0.0,
+            spawn_spread: 60.0,
+            spawn_rate: 0,
+            spawn_initial: 0,
             individuality: DEFAULT_INDIVIDUALITY,
 
             evaporation_rate: DEFAULT_EVAPORATION_RATE,
@@ -397,6 +462,24 @@ impl SimConfig {
         self.ant_count.saturating_mul(self.colonies())
     }
 
+    /// Population per colony that should have emerged from the nest by
+    /// simulation tick `tick`.
+    ///
+    /// Stateless on purpose: the release schedule is a pure function of the
+    /// tick counter, so batching adds no bookkeeping, resets for free, and
+    /// stays bit-identical for a given config. With `spawn_rate == 0` this is
+    /// just `ant_count` - the historical behaviour.
+    #[inline]
+    pub fn emerged_per_colony(&self, tick: u64) -> usize {
+        if self.spawn_rate == 0 {
+            return self.ant_count;
+        }
+        self.spawn_initial
+            .min(self.ant_count)
+            .saturating_add(self.spawn_rate.saturating_mul(tick as usize))
+            .min(self.ant_count)
+    }
+
     /// Largest pile radius that fits the current map.
     #[inline]
     pub fn max_pile_radius(&self) -> f32 {
@@ -414,6 +497,10 @@ impl SimConfig {
         self.colony_count = self.colony_count.clamp(1, MAX_COLONIES);
         self.nest_radius = self.nest_radius.clamp(0.5, 64.0);
         self.spawn_radius = self.spawn_radius.clamp(0.0, 64.0);
+        self.spawn_direction = self.spawn_direction.rem_euclid(360.0);
+        self.spawn_spread = self.spawn_spread.clamp(0.0, 360.0);
+        self.spawn_rate = self.spawn_rate.min(20_000);
+        self.spawn_initial = self.spawn_initial.min(20_000);
         self.individuality = self.individuality.clamp(0.0, 3.0);
         // Two nests must both fit, and must not sit on top of each other.
         let max_orbit = self.width.min(self.height) as f32 * 0.5 - self.nest_radius - 2.0;
@@ -557,6 +644,70 @@ mod tests {
         assert_ne!(a, b);
         assert_eq!(a, a);
         assert_ne!(a, ObstaclePreset::None);
+    }
+
+    /// Spawn modes round-trip through their keywords, and the default stays
+    /// the brief's behaviour - historical runs must remain bit-identical.
+    #[test]
+    fn spawn_modes_roundtrip_through_their_keywords() {
+        assert_eq!(SpawnMode::default(), SpawnMode::Disk);
+        assert_eq!(SpawnMode::parse("disk"), Some(SpawnMode::Disk));
+        assert_eq!(SpawnMode::parse("UNIFORM"), Some(SpawnMode::Disk));
+        assert_eq!(SpawnMode::parse("jet"), Some(SpawnMode::Jet));
+        assert_eq!(SpawnMode::parse("directed"), Some(SpawnMode::Jet));
+        assert_eq!(SpawnMode::parse("nonsense"), None);
+        for mode in [SpawnMode::Disk, SpawnMode::Jet] {
+            assert_eq!(
+                SpawnMode::parse(mode.keyword()),
+                Some(mode),
+                "{mode:?} keyword round-trip"
+            );
+        }
+    }
+
+    /// The jet direction is a bearing: it wraps, and the cone cannot exceed
+    /// the full circle.
+    #[test]
+    fn sanitize_wraps_direction_and_caps_the_spread() {
+        let mut config = SimConfig {
+            spawn_direction: -90.0,
+            spawn_spread: 500.0,
+            spawn_rate: 99_999,
+            spawn_initial: 99_999,
+            ..Default::default()
+        };
+        config.sanitize();
+        assert_eq!(config.spawn_direction, 270.0);
+        assert_eq!(config.spawn_spread, 360.0);
+        assert_eq!(config.spawn_rate, 20_000);
+        assert_eq!(config.spawn_initial, 20_000);
+    }
+
+    /// The release schedule is a pure function of the tick: start with
+    /// `spawn_initial`, grow by `spawn_rate` per tick, stop at `ant_count`.
+    #[test]
+    fn the_emerged_population_follows_the_release_schedule() {
+        let config = SimConfig {
+            ant_count: 100,
+            spawn_rate: 10,
+            spawn_initial: 20,
+            ..Default::default()
+        };
+        assert_eq!(config.emerged_per_colony(0), 20);
+        assert_eq!(config.emerged_per_colony(1), 30);
+        assert_eq!(config.emerged_per_colony(7), 90);
+        assert_eq!(config.emerged_per_colony(8), 100);
+        assert_eq!(config.emerged_per_colony(1_000), 100);
+
+        // A zero rate is the historical all-at-once behaviour, regardless of
+        // what the initial count says.
+        let instant = SimConfig {
+            spawn_rate: 0,
+            spawn_initial: 20,
+            ..config
+        };
+        assert_eq!(instant.emerged_per_colony(0), 100);
+        assert_eq!(instant.emerged_per_colony(50), 100);
     }
 
     /// Homing modes round-trip through their keywords, and the default stays

@@ -222,6 +222,26 @@ pub struct Strings {
     pub individuality: &'static str,
     pub individuality_hint: &'static str,
 
+    // ---- window app: exit distribution ----------------------------------------
+    /// Section header inside the Ants panel.
+    pub exit_section: &'static str,
+    /// Line under the section header.
+    pub exit_hint: &'static str,
+    /// Mode picker label.
+    pub exit_mode: &'static str,
+    pub exit_disk: &'static str,
+    pub exit_disk_hint: &'static str,
+    pub exit_jet: &'static str,
+    pub exit_jet_hint: &'static str,
+    pub exit_direction: &'static str,
+    pub exit_direction_hint: &'static str,
+    pub exit_spread: &'static str,
+    pub exit_spread_hint: &'static str,
+    pub exit_rate: &'static str,
+    pub exit_rate_hint: &'static str,
+    pub exit_initial: &'static str,
+    pub exit_initial_hint: &'static str,
+
     // ---- window app: crowding ---------------------------------------------------
     pub crowding_section: &'static str,
     pub jam_threshold: &'static str,
@@ -358,6 +378,10 @@ pub struct Strings {
     pub err_unknown_scenario: &'static str,
     /// "--homing: unknown mode '{kind}' (expected path, wall or flow)"
     pub err_unknown_homing: &'static str,
+    /// "unknown spawn mode '{kind}' for --spawn-mode (expected disk or jet)"
+    pub err_unknown_spawn: &'static str,
+    /// Report line label for the exit distribution (values are keywords).
+    pub report_spawn: &'static str,
     /// Report line prefix for the homing row.
     pub report_homing: &'static str,
     /// Report line prefix for the scenario row.
@@ -498,6 +522,22 @@ pub static EN: Strings = Strings {
     individuality: "individuality",
     individuality_hint: "spread of per-ant speed and wander. 0 makes every ant identical, which is what makes the colony expand as a hollow ring",
 
+    exit_section: "Exit distribution",
+    exit_hint: "every change rebuilds the world so all ants re-emerge with the new settings",
+    exit_mode: "exit mode",
+    exit_disk: "uniform disk",
+    exit_disk_hint: "ants start scattered uniformly over the nest disc, facing outward",
+    exit_jet: "directed jet",
+    exit_jet_hint: "ants leave on bearings inside a cone around one direction; positions stay on the nest disc",
+    exit_direction: "jet direction (°)",
+    exit_direction_hint: "0° points east (+x), counter-clockwise; 90° is straight up",
+    exit_spread: "jet spread (°)",
+    exit_spread_hint: "width of the exit cone; 360° is statistically the uniform disk again",
+    exit_rate: "emerge per tick",
+    exit_rate_hint: "0 = all ants leave at once. Above 0 the colony opens with the initial count and the rest emerges from the nest at this rate",
+    exit_initial: "initial ants",
+    exit_initial_hint: "population at tick 0 while emerge-per-tick is on; ignored when the rate is 0",
+
     crowding_section: "Crowding",
     jam_threshold: "jam threshold",
     jam_threshold_hint: "ants sharing one 4x4-cell bin before relief starts",
@@ -557,6 +597,13 @@ WORLD
     --pile-radius F       Food pile radius in cells        [default: 6]
     --nest-radius F       Nest radius in cells             [default: 4]
     --nest-orbit F        Nest distance from centre, 2 colonies  [default: 55]
+
+SPAWN
+    --spawn-mode KIND     disk | jet - how ants leave the nest  [default: disk]
+    --spawn-direction F   Jet direction in degrees, 0 = east, CCW  [default: 0]
+    --spawn-spread F      Jet cone width in degrees, 360 = disk  [default: 60]
+    --spawn-rate N        Ants emerging per tick, 0 = all at once  [default: 0]
+    --spawn-initial N     Ants at tick 0 when the rate is above 0  [default: 0]
 
 OBSTACLES
     --obstacles KIND      none | u-wall | blocks           [default: none]
@@ -666,7 +713,9 @@ EXIT CODE
     err_unknown_obstacle: "--obstacles: unknown kind '{kind}' (expected none, u-wall or blocks)",
     err_unknown_scenario: "unknown scenario '{name}' (built-ins: {list}, or a .toml file path)",
     err_unknown_homing: "--homing: unknown mode '{kind}' (expected path, wall or flow)",
+    err_unknown_spawn: "--spawn-mode: unknown mode '{kind}' (expected disk or jet)",
     report_homing: "homing",
+    report_spawn: "exit",
     report_scenario: "scenario",
     sweep_header_fmt: "=== sweep: {name} ({ticks} ticks, {ants} ants x {colonies} colony, {w}x{h}) ===",
     sweep_columns: "delivered", // column headers below are assembled per-language; see `sweep_table`
@@ -806,6 +855,22 @@ pub static ZH: Strings = Strings {
     individuality: "个体差异",
     individuality_hint: "每只蚂蚁速度与游走强度的差异幅度。0 = 全部一样,蚁群会扩成空心圆环",
 
+    exit_section: "出巢分布",
+    exit_hint: "任何改动都会重建世界,全部蚂蚁按新设置重新出巢",
+    exit_mode: "出巢模式",
+    exit_disk: "均匀圆盘",
+    exit_disk_hint: "蚂蚁均匀散布在巢穴圆盘内,朝向外侧出发",
+    exit_jet: "定向喷出",
+    exit_jet_hint: "蚂蚁朝一个方向、在一个扇形内的方位出巢;位置仍散布在巢穴圆盘内",
+    exit_direction: "喷出方向(°)",
+    exit_direction_hint: "0° 指向右侧(+x),逆时针增大;90° 为正上方",
+    exit_spread: "喷出扇角(°)",
+    exit_spread_hint: "出巢扇形的张角;360° 时在统计上与均匀圆盘分布一致",
+    exit_rate: "每tick出巢数",
+    exit_rate_hint: "0 = 全部蚂蚁一次出巢。大于 0 时蚁群以初始数量开局,其余按此速率从巢中陆续出巢",
+    exit_initial: "初始出巢数",
+    exit_initial_hint: "分批出巢时 tick 0 的蚁群数量;每tick出巢数为 0 时不生效",
+
     crowding_section: "拥挤",
     jam_threshold: "堵塞阈值",
     jam_threshold_hint: "一个 4x4 方块里多少只蚂蚁算堵塞",
@@ -865,6 +930,13 @@ Formica - 蚁群觅食模拟(无渲染命令行)
     --pile-radius F       食物堆半径(格)                  [默认: 6]
     --nest-radius F       巢穴半径(格)                    [默认: 4]
     --nest-orbit F        双蚁群时巢穴到中心距离           [默认: 55]
+
+出巢
+    --spawn-mode KIND     disk | jet - 蚂蚁如何离开巢穴    [默认: disk]
+    --spawn-direction F   喷出方向(度), 0 = 右, 逆时针     [默认: 0]
+    --spawn-spread F      喷出扇角(度), 360 = 均匀圆盘     [默认: 60]
+    --spawn-rate N        每tick出巢数, 0 = 一次全出       [默认: 0]
+    --spawn-initial N     出巢速率大于 0 时 tick 0 的数量  [默认: 0]
 
 障碍物
     --obstacles KIND      none | u-wall | blocks           [默认: none]
@@ -974,7 +1046,9 @@ Formica - 蚁群觅食模拟(无渲染命令行)
     err_unknown_obstacle: "--obstacles:未知类型 '{kind}'(应为 none、u-wall 或 blocks)",
     err_unknown_scenario: "未知场景 '{name}'(内置:{list},或给一个 .toml 文件路径)",
     err_unknown_homing: "--homing:未知模式 '{kind}'(应为 path、wall 或 flow)",
+    err_unknown_spawn: "--spawn-mode:未知模式 '{kind}'(应为 disk 或 jet)",
     report_homing: "归巢方式",
+    report_spawn: "出巢",
     report_scenario: "场景",
     sweep_header_fmt: "=== 扫描:{name}({ticks} tick,{ants} 只蚂蚁 x {colonies} 窝,{w}x{h})===",
     sweep_columns: "运回量",
@@ -1156,6 +1230,21 @@ mod tests {
                 home_trail_guidance_hint,
                 individuality,
                 individuality_hint,
+                exit_section,
+                exit_hint,
+                exit_mode,
+                exit_disk,
+                exit_disk_hint,
+                exit_jet,
+                exit_jet_hint,
+                exit_direction,
+                exit_direction_hint,
+                exit_spread,
+                exit_spread_hint,
+                exit_rate,
+                exit_rate_hint,
+                exit_initial,
+                exit_initial_hint,
                 crowding_section,
                 jam_threshold,
                 jam_threshold_hint,
@@ -1259,7 +1348,9 @@ mod tests {
                 scenario_import_failed_fmt,
                 err_unknown_scenario,
                 err_unknown_homing,
+                err_unknown_spawn,
                 report_homing,
+                report_spawn,
                 report_scenario,
             );
             for header in s.progress_labels {
