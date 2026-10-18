@@ -1118,6 +1118,7 @@ fn interact_controls(ui: &mut egui::Ui, interaction: &mut InteractionState, s: &
                     );
                 }
                 ui.small(s.mouse_help);
+                ui.small(s.pan_zoom_help);
             });
         });
 }

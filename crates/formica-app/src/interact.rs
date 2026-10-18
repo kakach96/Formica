@@ -7,10 +7,13 @@
 //! generator scattered, which is exactly the point: no separate "scripted food"
 //! path exists to drift out of sync with the real one.
 
+use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use formica_core::obstacles::Obstacles;
 use formica_core::prelude::*;
+
+use crate::render::{clamp_pan, clamp_zoom, zoom_anchor_pan, SceneGeometry};
 
 /// What a left-click does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -107,7 +110,94 @@ impl Plugin for FormicaInteractPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InteractionState>()
             .init_resource::<UiFocus>()
-            .add_systems(Update, handle_pointer);
+            .add_systems(Update, (handle_view_input, handle_pointer));
+    }
+}
+
+/// Wheel zoom and drag pan for the map view.
+///
+/// The camera view (`CameraView`) is presentation state, so the simulation is
+/// untouched; zoom rides `OrthographicProjection::scale` and pan rides the
+/// camera transform, both applied by `center_camera`. Painting keys off
+/// `viewport_to_world_2d`, which honours both automatically - a zoomed map is
+/// still painted cell-accurate with no extra work.
+///
+/// Buttons: wheel zooms anchored at the cursor; middle-drag pans; while map
+/// editing is off, left-drag pans too (left is otherwise the paint button).
+/// Anything over an egui widget is ignored, and a drag that crosses onto the
+/// panel is dropped rather than stealing the map around behind it.
+fn handle_view_input(
+    mut scroll: MessageReader<MouseWheel>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    geometry: Res<SceneGeometry>,
+    focus: Res<UiFocus>,
+    state: Res<InteractionState>,
+    mut view: ResMut<crate::render::CameraView>,
+    mut drag_anchor: Local<Option<Vec2>>,
+) {
+    if focus.pointer_over_ui {
+        *drag_anchor = None;
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        *drag_anchor = None;
+        return;
+    };
+    let (fw, fh) = (geometry.width as f32, geometry.height as f32);
+    if fw <= 0.0 || fh <= 0.0 {
+        return;
+    }
+    // World units per screen pixel at the current zoom: the same AutoMin
+    // scale `center_camera` computes, divided by the zoom factor.
+    let base = (window.width() / (fw + 10.0))
+        .min(window.height() / (fh + 10.0))
+        .max(f32::EPSILON);
+    let world_per_px = 1.0 / (base * view.zoom);
+
+    // --- zoom: wheel, anchored at the cursor ---------------------------------
+    let wheel: f32 = scroll.read().map(|event| event.y).sum();
+    if wheel != 0.0 {
+        let old = clamp_zoom(view.zoom);
+        // A notch is ±1..3 lines on most wheels; 0.15 per line ≈ two notches
+        // from fit to 1.5x - deliberate, gentle steps.
+        let new = clamp_zoom(old * (1.0 + 0.15 * wheel.clamp(-3.0, 3.0)));
+        if new != old {
+            // The cursor's world offset from the camera centre, measured
+            // *before* the zoom (screen y points down, world y up).
+            let center = Vec2::new(window.width() * 0.5, window.height() * 0.5);
+            let cursor_offset = Vec2::new(cursor.x - center.x, center.y - cursor.y) * world_per_px;
+            view.pan = clamp_pan(
+                zoom_anchor_pan(view.pan, cursor_offset, old, new),
+                fw,
+                fh,
+                new,
+            );
+            view.zoom = new;
+        }
+    }
+
+    // --- pan: middle-drag, or left-drag while editing is off -----------------
+    let panning = buttons.pressed(MouseButton::Middle)
+        || (!state.enabled && buttons.pressed(MouseButton::Left));
+    if panning {
+        // First frame of the drag: remember where it started, move nothing.
+        let anchor = drag_anchor.get_or_insert(cursor);
+        // Screen delta (x right, y down) → world delta (y up): dragging the
+        // map with the cursor means the camera moves against the cursor.
+        let delta = cursor - *anchor;
+        view.pan = clamp_pan(
+            view.pan - Vec2::new(delta.x, -delta.y) * world_per_px,
+            fw,
+            fh,
+            view.zoom,
+        );
+        *anchor = cursor;
+    } else {
+        *drag_anchor = None;
     }
 }
 

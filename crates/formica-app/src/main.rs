@@ -329,6 +329,7 @@ fn apply_sim_commands(world: &mut World) {
         // the sync systems recreate them this frame.
         despawn_marked::<render::FoodVisual>(world);
         despawn_marked::<render::NestVisual>(world);
+        despawn_marked::<render::NestExitVisual>(world);
         // Re-stamp the obstacle preset for the rebuilt world.
         let config = world.resource::<SimConfig>().clone();
         let centers = world.resource::<Nests>().centers();

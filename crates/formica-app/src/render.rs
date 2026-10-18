@@ -25,6 +25,7 @@ use bevy::camera::ScalingMode;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::PrimaryWindow;
+use formica_core::motion::wrap_angle;
 use formica_core::obstacles::Obstacles;
 use formica_core::prelude::*;
 
@@ -86,6 +87,54 @@ pub struct PanelMetrics {
     pub width: f32,
 }
 
+/// Where the player has dragged and zoomed the map view.
+///
+/// `zoom = 1.0` is the fitted, centered framing every figure is captured at,
+/// so an untouched view is bit-identical to the pre-pan behaviour; `pan` is a
+/// world-unit offset applied on top of the fitted placement. Deliberately
+/// *not* reset on a world restart: the player may be inspecting a trail
+/// mid-experiment, and a reset should not steal their vantage point.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct CameraView {
+    /// Camera offset in world units, on top of the fitted placement.
+    pub pan: Vec2,
+    /// Zoom factor, `1.0` = fitted view.
+    pub zoom: f32,
+}
+
+/// Zoom limits. `1.0` is the fitted framing; beyond that only magnify - a
+/// zoomed-out view would just show letterbox the player did not ask for.
+const MIN_ZOOM: f32 = 1.0;
+const MAX_ZOOM: f32 = 12.0;
+
+/// Clamp a zoom factor into `[MIN_ZOOM, MAX_ZOOM]`.
+pub fn clamp_zoom(zoom: f32) -> f32 {
+    zoom.clamp(MIN_ZOOM, MAX_ZOOM)
+}
+
+/// Clamp a pan offset so the camera never leaves the map.
+///
+/// Panning is only meaningful while the map is bigger than the visible area,
+/// so the allowed slack shrinks to zero at the fitted zoom: at `zoom = 1` the
+/// pan is zero, at `zoom = 4` the camera may travel within the inner
+/// `3/8` of the map (half of the `1 - 1/zoom` half-extent).
+pub fn clamp_pan(pan: Vec2, fw: f32, fh: f32, zoom: f32) -> Vec2 {
+    let slack = 0.5 * (1.0 - 1.0 / clamp_zoom(zoom).max(1.0));
+    let limit = Vec2::new(fw * slack, fh * slack);
+    pan.clamp(-limit, limit)
+}
+
+/// Pan adjustment that keeps the world point under the cursor under it while
+/// the zoom goes `old -> new` (both already clamped, `new > 0`).
+///
+/// The cursor sits at world offset `R` from the camera centre; after zooming
+/// by `k = new/old` the same cursor ray hits `R/k`, so the camera must slide
+/// by `R * (1 - 1/k)`.
+pub fn zoom_anchor_pan(pan: Vec2, cursor_offset_world: Vec2, old: f32, new: f32) -> Vec2 {
+    let k = new / old;
+    pan + cursor_offset_world * (1.0 - 1.0 / k)
+}
+
 /// The one entity drawing the world field.
 #[derive(Component)]
 pub struct PheromoneLayer;
@@ -108,6 +157,14 @@ pub struct FoodVisual(pub usize);
 /// changes, so there is no per-sprite index to keep in step.
 #[derive(Component)]
 pub struct NestVisual;
+
+/// Marks a jet-exit overlay sprite: the translucent cone showing where ants
+/// leave a nest in directed-jet mode.
+///
+/// Also no payload - like [`NestVisual`], it is rebuilt wholesale whenever
+/// the mode, the jet geometry or the nest layout changes.
+#[derive(Component)]
+pub struct NestExitVisual;
 
 /// Requests from the UI that need `&mut World` to service.
 #[derive(Resource, Debug, Clone, Default)]
@@ -254,12 +311,35 @@ fn food_shade(nx: f32, ny: f32) -> [f32; 4] {
     [v, v, v, alpha]
 }
 
+/// The jet-exit overlay: a translucent cone from the nest centre outward,
+/// pointing `+X` - the sprite's rotation carries the bearing.
+///
+/// `spread` is the full cone width in degrees. The tip fades out before the
+/// sprite edge (the texture's half-extent spans 1.5 nest radii, so the
+/// visible fan starts where the mound sprite ends), and at 360° the angle
+/// test degenerates to "everywhere" - drawn as a halo, not a wedge with a
+/// wrap seam at the ±180° edge.
+fn nest_exit_shade(nx: f32, ny: f32, spread: f32) -> [f32; 4] {
+    let d = (nx * nx + ny * ny).sqrt() * 2.0; // 0 at centre, 1 at the edge
+    let radial = 1.0 - smoothstep(0.80, 1.0, d);
+    let angular = if spread >= 359.5 {
+        1.0
+    } else {
+        let half = spread.max(0.0).to_radians() * 0.5;
+        let offset = wrap_angle(ny.atan2(nx)).abs();
+        1.0 - smoothstep(half - 0.03, half + 0.03, offset)
+    };
+    let alpha = 0.45 * angular * radial;
+    [1.0, 1.0, 1.0, alpha]
+}
+
 impl Plugin for FormicaRenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PheromoneView>()
             .init_resource::<SimCommands>()
             .init_resource::<SceneGeometry>()
             .init_resource::<PanelMetrics>()
+            .init_resource::<CameraView>()
             .add_systems(
                 // Presentation sync runs in `PostUpdate` so it always observes a
                 // fully-ticked world, whatever happens in `Update`.
@@ -277,6 +357,7 @@ impl Plugin for FormicaRenderPlugin {
                     sync_predator_sprites,
                     sync_food_sprites,
                     sync_nest_sprites,
+                    sync_exit_sprites,
                     paint_world,
                 )
                     .chain(),
@@ -310,6 +391,7 @@ fn rebuild_scene_if_needed(world: &mut World) {
             With<PheromoneLayer>,
             With<FoodVisual>,
             With<NestVisual>,
+            With<NestExitVisual>,
             With<PredatorVisual>,
         )>>();
         query.iter(world).collect()
@@ -392,7 +474,8 @@ fn rebuild_scene_if_needed(world: &mut World) {
     info!("scene rebuilt for a {width}x{height} map");
 }
 
-/// Center the map inside the area right of the control panel.
+/// Center the map inside the area right of the control panel, then apply the
+/// player's pan and zoom on top.
 ///
 /// The camera fits the map to the shorter viewport axis, so with a wide window
 /// the leftover width is split evenly around the map - but the panel occupies
@@ -405,7 +488,8 @@ fn center_camera(
     windows: Query<&Window, With<PrimaryWindow>>,
     geometry: Res<SceneGeometry>,
     panel: Res<PanelMetrics>,
-    mut cameras: Query<&mut Transform, With<Camera2d>>,
+    view: Res<CameraView>,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<Camera2d>>,
 ) {
     if geometry.width == 0 || geometry.height == 0 {
         return;
@@ -413,27 +497,67 @@ fn center_camera(
     let Ok(window) = windows.single() else {
         return;
     };
-    let Ok(mut transform) = cameras.single_mut() else {
+    let Ok((mut transform, mut projection)) = cameras.single_mut() else {
         return;
     };
 
-    let (fw, fh) = (geometry.width as f32, geometry.height as f32);
-    // `AutoMin` scale in *pixels per world unit*: the largest scale that still
-    // shows at least `fw + 10 x fh + 10` world units (the same letterbox
-    // margin the rebuild uses).
-    let viewport = Vec2::new(window.width(), window.height());
-    let scale = (viewport.x / (fw + 10.0))
+    let (placement, ortho_scale) = camera_placement(
+        geometry.width as f32,
+        geometry.height as f32,
+        Vec2::new(window.width(), window.height()),
+        panel.width,
+        view.zoom,
+        view.pan,
+    );
+    if transform.translation != placement {
+        transform.translation = placement;
+    }
+    // Zoom rides `OrthographicProjection::scale` (smaller scale = closer):
+    // the projection's own docs call this the intended way to zoom, and it
+    // keeps the `AutoMin` letterbox math intact for every other system.
+    if let Projection::Orthographic(ortho) = projection.as_mut() {
+        if ortho.scale != ortho_scale {
+            ortho.scale = ortho_scale;
+        }
+    }
+}
+
+/// Where the camera sits, and what its orthographic scale should be, for the
+/// current window, panel and view. Pure, so the framing math is testable
+/// without a `Window` entity.
+///
+/// Returns `(camera translation, projection scale)`; `zoom = 1.0` with zero
+/// pan is the fitted, centered framing everything else assumes.
+fn camera_placement(
+    fw: f32,
+    fh: f32,
+    viewport: Vec2,
+    panel_width: f32,
+    zoom: f32,
+    pan: Vec2,
+) -> (Vec3, f32) {
+    let zoom = clamp_zoom(zoom);
+    // `AutoMin` scale in *pixels per world unit* at zoom 1: the largest scale
+    // that still shows at least `fw + 10 x fh + 10` world units (the same
+    // letterbox margin the rebuild uses).
+    let base = (viewport.x / (fw + 10.0))
         .min(viewport.y / (fh + 10.0))
         .max(f32::EPSILON);
+    let px_per_world = base * zoom;
     // The panel occupies the strip `[0, panel.width]` on screen; in world
-    // units that is `panel.width / scale` wide, and the camera must sit half
-    // that far to the *left* of the map's center for the map's center to land
-    // on the free strip's center.
-    let panel_world = panel.width / scale;
-    let wanted = Vec3::new(fw * 0.5 - panel_world * 0.5, fh * 0.5, 1_000.0);
-    if transform.translation != wanted {
-        transform.translation = wanted;
-    }
+    // units that is `panel.width / px_per_world` wide, and the camera must
+    // sit half that far to the *left* of the map's center for the map's
+    // center to land on the free strip's center.
+    let panel_world = panel_width / px_per_world;
+    let pan = clamp_pan(pan, fw, fh, zoom);
+    (
+        Vec3::new(
+            fw * 0.5 - panel_world * 0.5 + pan.x,
+            fh * 0.5 + pan.y,
+            1_000.0,
+        ),
+        1.0 / zoom,
+    )
 }
 
 /// Give every ant entity a `Sprite` and a `Transform`.
@@ -676,6 +800,63 @@ fn sync_nest_sprites(
     }
 }
 
+/// Keep one exit cone per nest in directed-jet mode, none in disk mode.
+///
+/// The cone is an overlay *under* the nest sprite (z = 1.5 vs 2.0): it slides
+/// out from beneath the mound rim, which reads as an opening rather than a
+/// sticker on top. Rebuilt whenever the mode, the jet geometry, the nest
+/// count, or the nest layout changes - a restart always re-inserts `Nests`,
+/// so the layout case is covered by change detection rather than a stored
+/// revision that could go stale.
+fn sync_exit_sprites(
+    mut commands: Commands,
+    config: Res<SimConfig>,
+    nests: Res<Nests>,
+    mut images: ResMut<Assets<Image>>,
+    existing: Query<Entity, With<NestExitVisual>>,
+    mut cache: Local<Option<(SpawnMode, u32, u32, usize)>>,
+) {
+    // Geometry quantised to 0.1° so a slider drag rebuilds the cone only when
+    // a digit actually moves, not on every pixel.
+    let wanted = (
+        config.spawn_mode,
+        (config.spawn_direction * 10.0).round() as u32,
+        (config.spawn_spread * 10.0).round() as u32,
+        nests.len(),
+    );
+    if !nests.is_changed() && *cache == Some(wanted) {
+        return;
+    }
+    *cache = Some(wanted);
+
+    for entity in existing.iter() {
+        commands.entity(entity).despawn();
+    }
+    if config.spawn_mode != SpawnMode::Jet {
+        return;
+    }
+    let spread = config.spawn_spread;
+    // One texture serves every nest: it is drawn pointing `+X` and the
+    // sprite rotation carries the bearing, so only a spread change makes a
+    // new shape worth rasterising.
+    let texture = images.add(raster(64, 64, |nx, ny| nest_exit_shade(nx, ny, spread)));
+    for (index, nest) in nests.0.iter().enumerate() {
+        commands.spawn((
+            NestExitVisual,
+            Sprite {
+                image: texture.clone(),
+                color: NEST_COLORS[index.min(1)],
+                // The texture's half-extent is 1.5 nest radii, so the cone
+                // reaches past the mound rim before its tip fades out.
+                custom_size: Some(Vec2::splat(nest.radius * 3.0)),
+                ..default()
+            },
+            Transform::from_xyz(nest.x, nest.y, 1.5)
+                .with_rotation(Quat::from_rotation_z(config.spawn_direction.to_radians())),
+        ));
+    }
+}
+
 /// Rewrite the world texture: every active colony's pheromone, plus walls.
 ///
 /// Skipped entirely when nothing that feeds it has changed - which is what
@@ -824,6 +1005,96 @@ mod tests {
                 height: 512
             }
         );
+    }
+
+    /// The jet-exit overlay is a soft fan: bright on the bearing, nothing
+    /// beside it, a halo at 360°, and faded out before the sprite edge.
+    #[test]
+    fn the_jet_cone_is_a_soft_fan_on_the_bearing() {
+        let on_axis = nest_exit_shade(0.30, 0.0, 60.0);
+        assert!(on_axis[3] > 0.30, "axis alpha {:?}", on_axis);
+        assert_eq!(on_axis[..3], [1.0, 1.0, 1.0], "greyscale tint target");
+
+        // Half-cone at 60° spread is 30°; a point 90° off the bearing is out.
+        let off_axis = nest_exit_shade(0.0, 0.30, 60.0);
+        assert_eq!(off_axis[3], 0.0, "off-axis alpha {:?}", off_axis);
+
+        // 360° covers every bearing, seam-free.
+        let full = nest_exit_shade(0.0, 0.30, 360.0);
+        assert!(full[3] > 0.30, "a 360° cone must cover off-axis points");
+
+        // The tip fades before the sprite edge, so the cone never draws a
+        // hard square rim.
+        let tip = nest_exit_shade(0.49, 0.0, 60.0);
+        assert!(tip[3] < 0.05, "tip alpha {:?}", tip);
+    }
+
+    /// The fitted view (zoom 1) is exactly the pre-pan framing - and any pan
+    /// offset left in the resource is ignored - so every captured figure is
+    /// unaffected by the pan feature.
+    #[test]
+    fn the_fitted_view_ignores_leftover_pan() {
+        let (placement, scale) = camera_placement(
+            256.0,
+            256.0,
+            Vec2::new(1600.0, 900.0),
+            330.0,
+            1.0,
+            Vec2::new(500.0, -80.0),
+        );
+        let base = 900.0 / 266.0; // px per world unit at zoom 1
+        assert_eq!(scale, 1.0);
+        assert_eq!(placement.x, 128.0 - (330.0 / base) * 0.5);
+        assert_eq!(placement.y, 128.0);
+        assert_eq!(placement.z, 1_000.0);
+    }
+
+    /// Zoom rides the orthographic scale and the camera slides to the panned
+    /// spot, clamped inside the map.
+    #[test]
+    fn zoom_and_pan_reach_the_camera() {
+        let (placement, scale) = camera_placement(
+            256.0,
+            256.0,
+            Vec2::new(1600.0, 900.0),
+            330.0,
+            4.0,
+            Vec2::new(500.0, 0.0),
+        );
+        assert_eq!(scale, 0.25);
+        // Slack at zoom 4 is 0.5 * (1 - 1/4) of the map per axis = ±96.
+        let base = 900.0 / 266.0;
+        assert_eq!(placement.x, 128.0 - (330.0 / (base * 4.0)) * 0.5 + 96.0);
+        assert_eq!(placement.y, 128.0);
+    }
+
+    /// At the fitted zoom the pan slack is zero: panning a fully visible map
+    /// is a no-op, whatever the player dragged.
+    #[test]
+    fn the_pan_clamp_shuts_at_the_fitted_zoom() {
+        assert_eq!(
+            clamp_pan(Vec2::new(500.0, 500.0), 256.0, 256.0, 1.0),
+            Vec2::ZERO
+        );
+        // ...and opens up again as the player zooms in.
+        let clamped = clamp_pan(Vec2::new(500.0, 500.0), 256.0, 256.0, 4.0);
+        assert_eq!(clamped, Vec2::new(96.0, 96.0));
+    }
+
+    /// Cursor-anchored zoom: the world point under the cursor stays there,
+    /// which is what makes the wheel feel like grabbing the map.
+    #[test]
+    fn zooming_at_the_cursor_keeps_the_point_under_it() {
+        // Camera centre C, cursor at world offset R: W = C + R.
+        let fitted = Vec2::new(118.0, 123.0);
+        let pan = Vec2::new(10.0, 5.0);
+        let cursor_offset = Vec2::new(40.0, -20.0);
+        let under_before = fitted + pan + cursor_offset;
+
+        let pan = zoom_anchor_pan(pan, cursor_offset, 2.0, 4.0);
+        // After zooming by k, the cursor ray hits fitted + pan + R/k.
+        let under_after = fitted + pan + cursor_offset / 2.0;
+        assert_eq!(under_after, under_before);
     }
 
     fn pile(initial: f32) -> FoodPile {
