@@ -511,9 +511,17 @@ fn print_report(opts: &Options, outcome: &Outcome) {
 
     println!("\n{}", s.report_header);
     if let Some(scenario) = &opts.scenario {
+        // Built-in scenarios get their localized description; a custom TOML
+        // file keeps the text the file itself carries.
+        let description = s.scenario_description(&scenario.name);
+        let description = if description.is_empty() {
+            scenario.description.as_str()
+        } else {
+            description
+        };
         println!(
             "{}     {} - {}",
-            s.report_scenario, scenario.name, scenario.description
+            s.report_scenario, scenario.name, description
         );
     }
     println!(

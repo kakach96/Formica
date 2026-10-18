@@ -824,21 +824,26 @@ fn scenario_controls(
 
     let builtins = Scenario::builtins();
     ui.horizontal(|ui| {
-        let label = selected
+        let chosen = selected
             .as_deref()
-            .unwrap_or_else(|| match builtins.first() {
-                Some(first) => first.name.as_str(),
-                None => "",
-            })
-            .to_string();
+            .or_else(|| builtins.first().map(|first| first.name.as_str()))
+            .unwrap_or("");
         egui::ComboBox::from_id_salt("formica_scenario")
-            .selected_text(label)
+            .selected_text(s.scenario_display(chosen))
             .show_ui(ui, |ui| {
                 for scenario in &builtins {
                     let is_selected = selected.as_deref() == Some(scenario.name.as_str());
+                    // The scenario's own text is the English source; the
+                    // string table adds the Chinese rendering.
+                    let description = s.scenario_description(&scenario.name);
+                    let description = if description.is_empty() {
+                        scenario.description.as_str()
+                    } else {
+                        description
+                    };
                     if ui
-                        .selectable_label(is_selected, &scenario.name)
-                        .on_hover_text(&scenario.description)
+                        .selectable_label(is_selected, s.scenario_display(&scenario.name))
+                        .on_hover_text(description)
                         .clicked()
                     {
                         *selected = Some(scenario.name.clone());
@@ -1403,93 +1408,93 @@ fn exit_controls(
     commands: &mut SimCommands,
     s: &Strings,
 ) {
-    egui::CollapsingHeader::new(egui::RichText::new(s.exit_section).strong())
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.small(s.exit_hint);
+    // No collapsing triangle: the block is short and it *is* the Ants
+    // panel's initial-state half, so it stays permanently open - a plain
+    // strong label like the top-level sections use.
+    ui.label(egui::RichText::new(s.exit_section).strong());
+    ui.small(s.exit_hint);
 
-            ui.horizontal_wrapped(|ui| {
-                ui.label(s.exit_mode);
-                let modes = [
-                    (SpawnMode::Disk, s.exit_disk, s.exit_disk_hint),
-                    (SpawnMode::Jet, s.exit_jet, s.exit_jet_hint),
-                ];
-                let selected = config.spawn_mode;
-                let selected_text = modes
-                    .iter()
-                    .find(|(mode, ..)| *mode == selected)
-                    .map(|(_, option, _)| *option)
-                    .unwrap_or_default();
-                egui::ComboBox::from_id_salt("formica_exit_mode")
-                    .selected_text(selected_text)
-                    .show_ui(ui, |ui| {
-                        for (mode, option, hint) in modes {
-                            let is_selected = config.spawn_mode == mode;
-                            if ui
-                                .selectable_label(is_selected, option)
-                                .on_hover_text(hint)
-                                .clicked()
-                            {
-                                if !is_selected {
-                                    config.spawn_mode = mode;
-                                    commands.restart = true;
-                                }
-                            }
+    ui.horizontal_wrapped(|ui| {
+        ui.label(s.exit_mode);
+        let modes = [
+            (SpawnMode::Disk, s.exit_disk, s.exit_disk_hint),
+            (SpawnMode::Jet, s.exit_jet, s.exit_jet_hint),
+        ];
+        let selected = config.spawn_mode;
+        let selected_text = modes
+            .iter()
+            .find(|(mode, ..)| *mode == selected)
+            .map(|(_, option, _)| *option)
+            .unwrap_or_default();
+        egui::ComboBox::from_id_salt("formica_exit_mode")
+            .selected_text(selected_text)
+            .show_ui(ui, |ui| {
+                for (mode, option, hint) in modes {
+                    let is_selected = config.spawn_mode == mode;
+                    if ui
+                        .selectable_label(is_selected, option)
+                        .on_hover_text(hint)
+                        .clicked()
+                    {
+                        if !is_selected {
+                            config.spawn_mode = mode;
+                            commands.restart = true;
                         }
-                    });
+                    }
+                }
             });
+    });
 
-            if config.spawn_mode == SpawnMode::Jet {
-                let direction = labelled_slider(
-                    ui,
-                    s.exit_direction,
-                    s.exit_direction_hint,
-                    egui::Slider::new(&mut config.spawn_direction, 0.0..=360.0),
-                );
-                let spread = labelled_slider(
-                    ui,
-                    s.exit_spread,
-                    s.exit_spread_hint,
-                    egui::Slider::new(&mut config.spawn_spread, 0.0..=360.0),
-                );
-                // Fires once per drag, on release - not on every pixel.
-                if direction.drag_stopped() || spread.drag_stopped() {
-                    commands.restart = true;
-                }
-            }
+    if config.spawn_mode == SpawnMode::Jet {
+        let direction = labelled_slider(
+            ui,
+            s.exit_direction,
+            s.exit_direction_hint,
+            egui::Slider::new(&mut config.spawn_direction, 0.0..=360.0),
+        );
+        let spread = labelled_slider(
+            ui,
+            s.exit_spread,
+            s.exit_spread_hint,
+            egui::Slider::new(&mut config.spawn_spread, 0.0..=360.0),
+        );
+        // Fires once per drag, on release - not on every pixel.
+        if direction.drag_stopped() || spread.drag_stopped() {
+            commands.restart = true;
+        }
+    }
 
-            let mut rate = config.spawn_rate as u32;
-            let rate_slider = labelled_slider(
-                ui,
-                s.exit_rate,
-                s.exit_rate_hint,
-                egui::Slider::new(&mut rate, 0..=50),
-            );
-            if rate_slider.changed() {
-                config.spawn_rate = rate as usize;
-            }
-            if rate_slider.drag_stopped() {
-                commands.restart = true;
-            }
-            // Only meaningful while trickling; hidden otherwise so the 0
-            // state stays unambiguous ("everything leaves at once").
-            if config.spawn_rate > 0 {
-                let max = config.ant_count.max(1) as u32;
-                let mut initial = config.spawn_initial.min(config.ant_count) as u32;
-                let initial_slider = labelled_slider(
-                    ui,
-                    s.exit_initial,
-                    s.exit_initial_hint,
-                    egui::Slider::new(&mut initial, 0..=max),
-                );
-                if initial_slider.changed() {
-                    config.spawn_initial = initial as usize;
-                }
-                if initial_slider.drag_stopped() {
-                    commands.restart = true;
-                }
-            }
-        });
+    let mut rate = config.spawn_rate as u32;
+    let rate_slider = labelled_slider(
+        ui,
+        s.exit_rate,
+        s.exit_rate_hint,
+        egui::Slider::new(&mut rate, 0..=50),
+    );
+    if rate_slider.changed() {
+        config.spawn_rate = rate as usize;
+    }
+    if rate_slider.drag_stopped() {
+        commands.restart = true;
+    }
+    // Only meaningful while trickling; hidden otherwise so the 0
+    // state stays unambiguous ("everything leaves at once").
+    if config.spawn_rate > 0 {
+        let max = config.ant_count.max(1) as u32;
+        let mut initial = config.spawn_initial.min(config.ant_count) as u32;
+        let initial_slider = labelled_slider(
+            ui,
+            s.exit_initial,
+            s.exit_initial_hint,
+            egui::Slider::new(&mut initial, 0..=max),
+        );
+        if initial_slider.changed() {
+            config.spawn_initial = initial as usize;
+        }
+        if initial_slider.drag_stopped() {
+            commands.restart = true;
+        }
+    }
 }
 
 /// Crowding: the knob that stops a bottleneck collapsing the colony onto a

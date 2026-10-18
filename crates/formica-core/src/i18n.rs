@@ -1108,6 +1108,52 @@ impl Strings {
             ["取值", "运回量", "回收率", "S 评分", "被吃", "首达"]
         }
     }
+
+    /// Dropdown label for a built-in scenario.
+    ///
+    /// The ASCII name stays the identifier (the CLI's `--scenario` and the
+    /// TOML key on it), so in Chinese the localized short name rides beside
+    /// it: `classic(经典)`. English keeps the bare keyword, which is also
+    /// what an unknown name (a custom file) falls back to.
+    pub fn scenario_display(&self, name: &str) -> String {
+        if std::ptr::eq(self, &EN) {
+            return name.to_string();
+        }
+        let zh = match name {
+            "classic" => "经典",
+            "duel" => "对决",
+            "labyrinth" => "迷宫",
+            "fortress" => "堡垒",
+            "arid" => "荒原",
+            "long-haul" => "长途",
+            "maze-run" => "曲径",
+            _ => return name.to_string(),
+        };
+        format!("{name}({zh})")
+    }
+
+    /// Localized description of a built-in scenario, for tooltips and the
+    /// headless report.
+    ///
+    /// Empty outside Chinese and for unknown names: in English the caller
+    /// falls back to the scenario's own text (which is the source of truth
+    /// in [`crate::scenario::Scenario::builtins`]), and a custom TOML file
+    /// keeps whatever the file itself says.
+    pub fn scenario_description(&self, name: &str) -> &'static str {
+        if std::ptr::eq(self, &EN) {
+            return "";
+        }
+        match name {
+            "classic" => "任务书默认:三堆种子食物,空旷场地",
+            "duel" => "两窝竞争:各自的信息素通路,共享同一圈食物",
+            "labyrinth" => "45% 墙体:拥挤缓解为之而生的迷宫",
+            "fortress" => "食物被 U 形墙围住,三只捕食者巡猎",
+            "arid" => "信息素蒸发极快:稀疏蚁群的高难模式",
+            "long-haul" => "512x512 大地图,八堆食物,一列长途商队",
+            "maze-run" => "手工搭建的走廊,尽头是一顿固定的盛宴",
+            _ => "",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1424,5 +1470,26 @@ mod tests {
                 .collect()
         };
         assert_eq!(flags(EN.help_text), flags(ZH.help_text));
+    }
+
+    /// Every built-in scenario must carry a Chinese short name and a Chinese
+    /// description (the English side keeps the bare keyword and defers to the
+    /// scenario's own text), so a new built-in cannot ship untranslated.
+    #[test]
+    fn builtin_scenarios_are_localized() {
+        for name in crate::scenario::Scenario::builtin_names() {
+            assert!(
+                !ZH.scenario_description(&name).trim().is_empty(),
+                "{name} has no Chinese description"
+            );
+            let display = ZH.scenario_display(&name);
+            assert!(display.contains(&name), "{display} lost the keyword");
+            assert_ne!(display, name, "{name} has no Chinese short name");
+            assert_eq!(EN.scenario_display(&name), name);
+            assert_eq!(EN.scenario_description(&name), "");
+        }
+        // Unknown names (custom TOML files) fall back to the given text.
+        assert_eq!(ZH.scenario_display("my-file"), "my-file");
+        assert_eq!(ZH.scenario_description("my-file"), "");
     }
 }
