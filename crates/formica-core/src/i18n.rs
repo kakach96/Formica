@@ -125,6 +125,8 @@ pub struct Strings {
     pub presets_section: &'static str,
     /// One-line "presets vs scenarios" distinction under the section header.
     pub presets_hint: &'static str,
+    /// "applied: {name}" - shown under the preset grid after a click.
+    pub preset_active_fmt: &'static str,
     pub preset_brief: &'static str,
     pub preset_brief_hint: &'static str,
     pub preset_no_pheromone: &'static str,
@@ -280,8 +282,6 @@ pub struct Strings {
     pub scenario_imported_fmt: &'static str,
     /// "failed to load {path}: {err}"
     pub scenario_import_failed_fmt: &'static str,
-    /// Status when the import/export path box is empty.
-    pub scenario_no_path: &'static str,
 
     // ---- headless: CLI help -----------------------------------------------------------------
     pub help_text: &'static str,
@@ -411,6 +411,7 @@ pub static EN: Strings = Strings {
 
     presets_section: "Presets & scenarios",
     presets_hint: "presets change behaviour parameters only; scenarios also rebuild the map (walls and food) and can be shared as files",
+    preset_active_fmt: "applied: {name}",
     preset_brief: "Brief defaults",
     preset_brief_hint: "evaporation 0.10, the parameters from the project brief",
     preset_no_pheromone: "No pheromone",
@@ -524,18 +525,17 @@ pub static EN: Strings = Strings {
 
     scenario_section: "Scenario",
     scenario_builtins_hint: "pick one to load it; export saves a set-up as a TOML file, import loads one back",
-    scenario_export: "export current set-up",
+    scenario_export: "export current set-up…",
     scenario_export_hint: "writes the current set-up to the file named in the box - config, every food pile, and any walls you drew",
     scenario_exported_fmt: "wrote the current set-up to {path}",
     scenario_failed_fmt: "failed to write {path}: {err}",
-    scenario_export_preset: "export preset",
+    scenario_export_preset: "export preset…",
     scenario_export_preset_hint: "writes the built-in currently selected in the dropdown, walls and food included",
     scenario_preset_exported_fmt: "wrote preset '{name}' to {path}",
-    scenario_import: "import from file",
+    scenario_import: "import from file…",
     scenario_import_hint: "loads a scenario TOML (an exported file, for example) and rebuilds the world",
     scenario_imported_fmt: "loaded scenario '{name}' from {path} - the world was rebuilt",
     scenario_import_failed_fmt: "failed to load {path}: {err}",
-    scenario_no_path: "type a .toml file path in the box first",
 
     help_text: "\
 Formica - ant colony foraging simulation (headless)
@@ -719,6 +719,7 @@ pub static ZH: Strings = Strings {
 
     presets_section: "预设与场景",
     presets_hint: "预设只调行为参数;场景还会重建地图(墙与食物),并可存成文件分享",
+    preset_active_fmt: "已应用:{name}",
     preset_brief: "任务书默认",
     preset_brief_hint: "蒸发率 0.10,项目任务书的参数",
     preset_no_pheromone: "无信息素",
@@ -832,18 +833,17 @@ pub static ZH: Strings = Strings {
 
     scenario_section: "场景",
     scenario_builtins_hint: "选择即加载;导出把设置存成 TOML 文件,导入则把文件加载回来",
-    scenario_export: "导出当前设置",
+    scenario_export: "导出当前设置…",
     scenario_export_hint: "把当前设置写入路径框指定的文件:配置、每堆食物,以及画上去的墙",
     scenario_exported_fmt: "当前设置已写入 {path}",
     scenario_failed_fmt: "写入 {path} 失败:{err}",
-    scenario_export_preset: "导出预设场景",
+    scenario_export_preset: "导出预设场景…",
     scenario_export_preset_hint: "把下拉中选中的内置场景完整导出(含墙体与食物)",
     scenario_preset_exported_fmt: "预设 {name} 已写入 {path}",
-    scenario_import: "从文件导入",
+    scenario_import: "从文件导入…",
     scenario_import_hint: "读取一个场景 TOML(例如之前导出的)并重建世界",
     scenario_imported_fmt: "已从 {path} 载入场景 {name},世界已重建",
     scenario_import_failed_fmt: "载入 {path} 失败:{err}",
-    scenario_no_path: "请先在路径框里填一个 .toml 文件路径",
 
     help_text: "\
 Formica - 蚁群觅食模拟(无渲染命令行)
@@ -1085,6 +1085,7 @@ mod tests {
                 pause_hint,
                 presets_section,
                 presets_hint,
+                preset_active_fmt,
                 preset_brief,
                 preset_brief_hint,
                 preset_no_pheromone,
@@ -1256,7 +1257,6 @@ mod tests {
                 scenario_import_hint,
                 scenario_imported_fmt,
                 scenario_import_failed_fmt,
-                scenario_no_path,
                 err_unknown_scenario,
                 err_unknown_homing,
                 report_homing,

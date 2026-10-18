@@ -49,6 +49,21 @@ impl PaintMode {
             PaintMode::Erase => s.mode_erase,
         }
     }
+
+    /// Panel button glyph, from egui's built-in icon fallback fonts (both
+    /// codepoints verified in their cmap tables). The brush's mode buttons
+    /// are icons with this glyph; the tooltip carries the [`Self::label_for`]
+    /// name.
+    pub fn glyph(self) -> &'static str {
+        match self {
+            // An apple for "drop food".
+            PaintMode::Food => "\u{1F34E}",
+            // A filled square for "wall block".
+            PaintMode::Wall => "\u{25A0}",
+            // Trash for "take it back".
+            PaintMode::Erase => "\u{1F5D1}",
+        }
+    }
 }
 
 /// What the mouse is currently allowed to do.

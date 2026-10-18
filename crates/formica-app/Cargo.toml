@@ -18,3 +18,7 @@ bevy_egui.workspace = true
 # on the winit window. Same 0.30 line as bevy_winit uses, so the two resolve
 # to one package.
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
+# Native file dialogs for scenario import/export (IFileDialog on Windows).
+# Opened on a worker thread, so the frame loop keeps running while the
+# dialog is up.
+rfd = "0.15"

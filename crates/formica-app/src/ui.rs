@@ -26,6 +26,20 @@ use crate::lang::UiLang;
 use crate::paint::{colony_colors, PheromoneView};
 use crate::render::{PanelMetrics, SimCommands};
 
+/// Which scenario action a pending native file dialog is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DialogKind {
+    /// Pick a TOML file and load it.
+    Import,
+    /// Pick where to write the live set-up.
+    ExportCurrent,
+    /// Pick where to write the built-in shown in the dropdown.
+    ExportPreset,
+}
+
+/// Reply channel of a native file dialog opened on a worker thread.
+type DialogReply = std::sync::mpsc::Receiver<Option<std::path::PathBuf>>;
+
 /// Install the CJK fallback font and the panel look the first time the egui
 /// context exists.
 ///
@@ -212,8 +226,12 @@ fn control_panel(
     mut export_status: Local<Option<String>>,
     // The currently selected built-in scenario name, shown in the dropdown.
     mut scenario_selection: Local<Option<String>>,
-    // The export/import file path; defaults to the repo-root scenarios folder.
-    mut scenario_path: Local<String>,
+    // The preset applied last, shown as the pressed button and an "applied:"
+    // line - the only feedback a parameter diff can give.
+    mut active_preset: Local<Option<Preset>>,
+    // A native file dialog opened from the scenario section, answered on a
+    // worker thread and polled every frame until it settles.
+    mut file_dialog: Local<Option<(DialogKind, DialogReply)>>,
 ) -> Result {
     // Destructured by value so each binding is an owned `Res`/`ResMut`, which
     // coerces to `&mut T` at every call site below.
@@ -307,8 +325,17 @@ fn control_panel(
                         ui.add_space(2.0);
                         egui::Grid::new("presets").num_columns(1).show(ui, |ui| {
                             for preset in Preset::ALL {
+                                // Pressed state marks the preset applied last,
+                                // so a click has visible feedback even when the
+                                // parameter diff is too subtle to see (two
+                                // evaporation rates differ little on screen).
+                                let applied = *active_preset == Some(preset);
                                 if ui
-                                    .button(preset.label(s))
+                                    .add(
+                                        egui::Button::new(preset.label(s))
+                                            .small()
+                                            .selected(applied),
+                                    )
                                     .on_hover_text(preset.hint(s))
                                     .clicked()
                                 {
@@ -318,10 +345,14 @@ fn control_panel(
                                     // the renderer a clean slate rather than
                                     // leaving half of it stale.
                                     *draft_size = Some((config.width, config.height));
+                                    *active_preset = Some(preset);
                                 }
                                 ui.end_row();
                             }
                         });
+                        if let Some(preset) = *active_preset {
+                            ui.small(s.preset_active_fmt.replace("{name}", preset.label(s)));
+                        }
                         ui.separator();
                         scenario_controls(
                             ui,
@@ -332,7 +363,7 @@ fn control_panel(
                             s,
                             &mut scenario_selection,
                             &mut export_status,
-                            &mut scenario_path,
+                            &mut file_dialog,
                         );
                     });
                 ui.separator();
@@ -560,6 +591,26 @@ fn delivery_curve(
     );
 }
 
+/// A small square button showing a font glyph with a hover tooltip.
+///
+/// The glyphs come from egui's built-in icon fallback fonts (NotoEmoji and
+/// emoji-icon-font); every codepoint used here was verified against their
+/// cmap tables, so no button can ever render as a tofu box. `enabled =
+/// false` greys the button out, the same look the rest of the panel uses.
+fn icon_button(ui: &mut egui::Ui, glyph: &str, tip: String, enabled: bool) -> egui::Response {
+    ui.scope(|ui| {
+        if !enabled {
+            ui.disable();
+        }
+        ui.add_sized(
+            [30.0, 22.0],
+            egui::Button::new(egui::RichText::new(glyph).size(14.0)),
+        )
+    })
+    .inner
+    .on_hover_text(tip)
+}
+
 fn run_controls(
     ui: &mut egui::Ui,
     config: &mut SimConfig,
@@ -568,33 +619,28 @@ fn run_controls(
 ) {
     ui.label(egui::RichText::new(s.run_section).strong());
     ui.horizontal(|ui| {
-        // Square icon buttons, media-player style: the glyph shows the action
-        // the click will perform, the tooltip spells it out. The glyphs come
-        // from egui's built-in emoji-icon-font (coverage verified for
-        // U+23F8 pause, U+25B6 play, U+21BA reset, U+1F5D1 trash).
-        let icon_button = |ui: &mut egui::Ui, glyph: &str, tip: String| -> egui::Response {
-            ui.add_sized(
-                [30.0, 22.0],
-                egui::Button::new(egui::RichText::new(glyph).size(14.0)),
-            )
-            .on_hover_text(tip)
-        };
-
-        // Pause/resume is one two-state button: the glyph and the tooltip both
-        // show the action the click will perform - pause while running, resume
-        // while paused - each state with its own matching hint.
+        // Icon buttons, media-player style: the glyph shows the action the
+        // click will perform, the tooltip spells it out.
         let (pause_glyph, pause_tip, pause_hint) = if config.paused {
             ("\u{25B6}", s.resume, s.resume_hint)
         } else {
             ("\u{23F8}", s.pause, s.pause_hint)
         };
-        if icon_button(ui, pause_glyph, format!("{} - {}", pause_tip, pause_hint)).clicked() {
+        if icon_button(
+            ui,
+            pause_glyph,
+            format!("{} - {}", pause_tip, pause_hint),
+            true,
+        )
+        .clicked()
+        {
             config.paused = !config.paused;
         }
         if icon_button(
             ui,
             "\u{21BA}",
             format!("{} - {}", s.restart, s.restart_hint),
+            true,
         )
         .clicked()
         {
@@ -606,6 +652,7 @@ fn run_controls(
             ui,
             "\u{1F5D1}",
             format!("{} - {}", s.clear_trails, s.clear_trails_hint),
+            true,
         )
         .clicked()
         {
@@ -720,6 +767,11 @@ fn world_controls(
 /// imported scenario and a picked built-in end up in exactly the same world.
 /// Export needs only readable data - the config plus the live pile list -
 /// so it happens here.
+///
+/// File picking uses the OS dialog (rfd) instead of a typed path box: the
+/// dialog opens on a worker thread and replies over a channel that this
+/// function polls each frame, so the window keeps rendering while the dialog
+/// is up and the panel never blocks on COM's modal message pump.
 fn scenario_controls(
     ui: &mut egui::Ui,
     config: &SimConfig,
@@ -729,7 +781,7 @@ fn scenario_controls(
     s: &Strings,
     selected: &mut Option<String>,
     export_status: &mut Option<String>,
-    import_path: &mut String,
+    dialog: &mut Option<(DialogKind, DialogReply)>,
 ) {
     ui.label(egui::RichText::new(s.scenario_section).strong());
 
@@ -763,53 +815,109 @@ fn scenario_controls(
     });
     ui.small(s.scenario_builtins_hint);
 
-    // The export/import path box doubles for both directions: name a file,
-    // export writes it, import reads it. That round trip is the whole point -
-    // an exported set-up is reproducible by typing the same path.
-    if import_path.is_empty() {
-        *import_path = "scenarios/formica-scenario.toml".to_string();
-    }
-    ui.horizontal(|ui| {
-        ui.add(
-            egui::TextEdit::singleline(import_path)
-                .desired_width(200.0)
-                .hint_text("scenarios/….toml"),
-        );
-        if ui
-            .button(s.scenario_import)
-            .on_hover_text(s.scenario_import_hint)
-            .clicked()
-        {
-            import_scenario(commands, import_path.trim(), s, export_status);
+    // Settle a pending dialog: take the picked path (or a cancellation), run
+    // the action it was opened for, and free the slot so the buttons re-arm.
+    let mut settled = None;
+    if let Some((kind, rx)) = dialog.as_ref() {
+        if let Ok(result) = rx.try_recv() {
+            settled = Some((*kind, result));
         }
-    });
+    }
+    if let Some((kind, result)) = settled {
+        *dialog = None;
+        if let Some(path) = result {
+            let path = ensure_toml_extension(path);
+            match kind {
+                DialogKind::Import => import_scenario(commands, path, s, export_status),
+                DialogKind::ExportCurrent => {
+                    export_current_setup(config, food, obstacles, path, s, export_status);
+                }
+                DialogKind::ExportPreset => {
+                    export_selected_preset(selected, path, s, export_status);
+                }
+            }
+        }
+    }
 
+    // One dialog at a time: the buttons grey out while a dialog is pending,
+    // matching the disabled look the rest of the panel uses.
+    let busy = dialog.is_some();
+    // Icon buttons, one row: open (import), save (export the live set-up),
+    // share (export the selected built-in). The tooltips keep the labels and
+    // the "…" that marks them as opening a dialog.
     ui.horizontal(|ui| {
-        if ui
-            .button(s.scenario_export)
-            .on_hover_text(s.scenario_export_hint)
-            .clicked()
+        if icon_button(
+            ui,
+            "\u{1F4C2}",
+            format!("{} - {}", s.scenario_import, s.scenario_import_hint),
+            !busy,
+        )
+        .clicked()
         {
-            export_current_setup(
-                config,
-                food,
-                obstacles,
-                import_path.trim(),
-                s,
-                export_status,
+            spawn_file_dialog(dialog, DialogKind::Import, false, String::new());
+        }
+        if icon_button(
+            ui,
+            "\u{1F4BE}",
+            format!("{} - {}", s.scenario_export, s.scenario_export_hint),
+            !busy,
+        )
+        .clicked()
+        {
+            spawn_file_dialog(
+                dialog,
+                DialogKind::ExportCurrent,
+                true,
+                "formica-scenario.toml".to_string(),
             );
         }
-        if ui
-            .button(s.scenario_export_preset)
-            .on_hover_text(s.scenario_export_preset_hint)
-            .clicked()
+        if icon_button(
+            ui,
+            "\u{1F4E4}",
+            format!(
+                "{} - {}",
+                s.scenario_export_preset, s.scenario_export_preset_hint
+            ),
+            !busy,
+        )
+        .clicked()
         {
-            export_selected_preset(selected, s, export_status);
+            let name = selected.as_deref().unwrap_or("scenario").to_string();
+            spawn_file_dialog(
+                dialog,
+                DialogKind::ExportPreset,
+                true,
+                format!("{name}.toml"),
+            );
         }
     });
+    ui.add_space(2.0);
     if let Some(status) = export_status {
         ui.small(status.clone());
     }
+}
+
+/// Open a native file dialog on a worker thread and remember how to receive
+/// its answer. `save` picks the save variant (with a default file name),
+/// otherwise an open dialog is shown. The thread ends when the dialog closes;
+/// a cancelled dialog replies `None`.
+fn spawn_file_dialog(
+    slot: &mut Option<(DialogKind, DialogReply)>,
+    kind: DialogKind,
+    save: bool,
+    default_name: String,
+) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let dialog = rfd::FileDialog::new().add_filter("TOML", &["toml"]);
+        let picked = if save {
+            dialog.set_file_name(&default_name).save_file()
+        } else {
+            dialog.pick_file()
+        };
+        let _ = tx.send(picked);
+    });
+    *slot = Some((kind, rx));
 }
 
 /// Write the live config, pile layout and wall shape to a TOML file.
@@ -822,15 +930,11 @@ fn export_current_setup(
     config: &SimConfig,
     food: &FoodField,
     obstacles: &Obstacles,
-    raw_path: &str,
+    picked: std::path::PathBuf,
     s: &Strings,
     status: &mut Option<String>,
 ) {
-    let Some(path) = with_toml_extension(raw_path) else {
-        *status = Some(s.scenario_no_path.to_string());
-        return;
-    };
-    let path = std::path::PathBuf::from(path);
+    let path = ensure_toml_extension(picked);
     // Exports land in their own folder rather than the repo root, where the
     // binary happens to run from.
     if let Some(directory) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
@@ -848,31 +952,34 @@ fn export_current_setup(
     });
 }
 
-/// Write the built-in currently shown in the dropdown as a complete TOML.
+/// Write the built-in currently shown in the dropdown to the picked file.
 ///
-/// Unlike the live capture above this serialises the preset itself, so its
-/// hand-written walls and food spots survive the round trip byte for byte -
-/// that is the "share this exact map" path.
-fn export_selected_preset(selected: &Option<String>, s: &Strings, status: &mut Option<String>) {
+/// This serialises the preset itself, so its hand-written walls and food
+/// spots survive the round trip byte for byte - that is the "share this
+/// exact map" path.
+fn export_selected_preset(
+    selected: &Option<String>,
+    picked: std::path::PathBuf,
+    s: &Strings,
+    status: &mut Option<String>,
+) {
     let name = selected.as_deref().unwrap_or("");
     match Scenario::builtin(name) {
         Some(preset) => {
-            let directory = std::path::Path::new("scenarios");
-            let path = directory.join(format!("{}.toml", preset.name));
-            *status = Some(
-                match std::fs::create_dir_all(directory)
-                    .and_then(|()| std::fs::write(&path, preset.to_toml_string()))
-                {
-                    Ok(()) => s
-                        .scenario_preset_exported_fmt
-                        .replace("{name}", &preset.name)
-                        .replace("{path}", &path.display().to_string()),
-                    Err(err) => s
-                        .scenario_failed_fmt
-                        .replace("{path}", &path.display().to_string())
-                        .replace("{err}", &err.to_string()),
-                },
-            );
+            let path = ensure_toml_extension(picked);
+            if let Some(directory) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+                let _ = std::fs::create_dir_all(directory);
+            }
+            *status = Some(match std::fs::write(&path, preset.to_toml_string()) {
+                Ok(()) => s
+                    .scenario_preset_exported_fmt
+                    .replace("{name}", preset.name.as_str())
+                    .replace("{path}", &path.display().to_string()),
+                Err(err) => s
+                    .scenario_failed_fmt
+                    .replace("{path}", &path.display().to_string())
+                    .replace("{err}", &err.to_string()),
+            });
         }
         None => {
             let list = Scenario::builtin_names().join(", ");
@@ -885,25 +992,21 @@ fn export_selected_preset(selected: &Option<String>, s: &Strings, status: &mut O
     }
 }
 
-/// Read a scenario TOML from disk and queue a world rebuild.
+/// Read a scenario TOML from the picked path and queue a world rebuild.
 fn import_scenario(
     commands: &mut SimCommands,
-    raw_path: &str,
+    path: std::path::PathBuf,
     s: &Strings,
     status: &mut Option<String>,
 ) {
-    let attempt = with_toml_extension(raw_path)
-        .ok_or_else(|| s.scenario_no_path.to_string())
-        .and_then(|path| {
-            std::fs::read_to_string(&path)
-                .map_err(|err| err.to_string())
-                .and_then(|text| Scenario::parse_toml(&text).map(|scenario| (path, scenario)))
-        });
+    let attempt = std::fs::read_to_string(&path)
+        .map_err(|err| err.to_string())
+        .and_then(|text| Scenario::parse_toml(&text).map(|scenario| (path.clone(), scenario)));
     match attempt {
         Ok((path, scenario)) => {
             *status = Some(
                 s.scenario_imported_fmt
-                    .replace("{path}", &path)
+                    .replace("{path}", &path.display().to_string())
                     .replace("{name}", &scenario.name),
             );
             commands.load_scenario = Some(scenario);
@@ -911,26 +1014,26 @@ fn import_scenario(
         Err(err) => {
             *status = Some(
                 s.scenario_import_failed_fmt
-                    .replace("{path}", raw_path)
+                    .replace("{path}", &path.display().to_string())
                     .replace("{err}", &err),
             );
         }
     }
 }
 
-/// Force the typed path to end in `.toml`, so the export can be read back by
-/// the import box and by the CLI's `--scenario` (both resolve files by that
-/// extension before falling back to built-in names).
-fn with_toml_extension(path: &str) -> Option<String> {
-    let trimmed = path.trim();
-    if trimmed.is_empty() {
-        return None;
+/// Force the picked path to end in `.toml`, so an export can be read back by
+/// the import dialog and by the CLI's `--scenario` (both resolve files by
+/// that extension before falling back to built-in names). The native save
+/// dialog suggests the name but lets the user type anything.
+fn ensure_toml_extension(mut path: std::path::PathBuf) -> std::path::PathBuf {
+    let has_toml = path
+        .extension()
+        .map(|ext| ext.eq_ignore_ascii_case("toml"))
+        .unwrap_or(false);
+    if !has_toml {
+        path.set_extension("toml");
     }
-    if trimmed.to_ascii_lowercase().ends_with(".toml") {
-        Some(trimmed.to_string())
-    } else {
-        Some(format!("{trimmed}.toml"))
-    }
+    path
 }
 
 fn interact_controls(ui: &mut egui::Ui, interaction: &mut InteractionState, s: &Strings) {
@@ -942,9 +1045,22 @@ fn interact_controls(ui: &mut egui::Ui, interaction: &mut InteractionState, s: &
             // pointer handler in `interact.rs` ignores the map entirely.
             ui.checkbox(&mut interaction.enabled, s.enable_map_editing);
             ui.add_enabled_ui(interaction.enabled, |ui| {
-                ui.horizontal_wrapped(|ui| {
+                // Icon mode buttons, pressed = active mode; the tooltip names
+                // the mode in the panel language.
+                ui.horizontal(|ui| {
                     for mode in PaintMode::ALL {
-                        ui.selectable_value(&mut interaction.mode, mode, mode.label_for(s));
+                        let active = interaction.mode == mode;
+                        if ui
+                            .add(
+                                egui::Button::new(egui::RichText::new(mode.glyph()).size(14.0))
+                                    .small()
+                                    .selected(active),
+                            )
+                            .on_hover_text(mode.label_for(s))
+                            .clicked()
+                        {
+                            interaction.mode = mode;
+                        }
                     }
                 });
                 ui.add(
@@ -1209,23 +1325,26 @@ fn display_controls(ui: &mut egui::Ui, view: &mut PheromoneView, s: &Strings) {
             )
             .on_hover_text(s.gain_hint);
             ui.horizontal(|ui| {
-                // Toggle buttons, not checkboxes: pressed = shown.
+                // Icon toggle buttons, pressed = shown. 🍎 is the food trail,
+                // 🏠 the trail home (both glyphs verified in the icon fonts).
                 if ui
                     .add(
-                        egui::Button::new(s.food_trail)
+                        egui::Button::new(egui::RichText::new("\u{1F34E}").size(14.0))
                             .small()
                             .selected(view.show_food),
                     )
+                    .on_hover_text(s.food_trail)
                     .clicked()
                 {
                     view.show_food = !view.show_food;
                 }
                 if ui
                     .add(
-                        egui::Button::new(s.home_trail)
+                        egui::Button::new(egui::RichText::new("\u{1F3E0}").size(14.0))
                             .small()
                             .selected(view.show_home),
                     )
+                    .on_hover_text(s.home_trail)
                     .clicked()
                 {
                     view.show_home = !view.show_home;
@@ -1234,4 +1353,29 @@ fn display_controls(ui: &mut egui::Ui, view: &mut PheromoneView, s: &Strings) {
             ui.small(s.color_legend);
             ui.small(s.legend_actors);
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The save dialog suggests a name but lets the user type anything, so
+    /// both the extensionless and the wrong-extension case must land on a
+    /// path the CLI's `--scenario` resolves.
+    #[test]
+    fn picked_paths_always_end_in_toml() {
+        assert_eq!(
+            ensure_toml_extension(std::path::PathBuf::from("maps/fortress")),
+            std::path::PathBuf::from("maps/fortress.toml")
+        );
+        assert_eq!(
+            ensure_toml_extension(std::path::PathBuf::from("maps/fortress.toml")),
+            std::path::PathBuf::from("maps/fortress.toml")
+        );
+        // Case-insensitive: an upper-case extension is still a .toml.
+        assert_eq!(
+            ensure_toml_extension(std::path::PathBuf::from("maps/fortress.TOML")),
+            std::path::PathBuf::from("maps/fortress.TOML")
+        );
+    }
 }
