@@ -379,7 +379,7 @@ fn control_panel(
                 ui.separator();
                 pheromone_controls(ui, &mut config, s);
                 ui.separator();
-                ant_controls(ui, &mut config, s);
+                ant_controls(ui, &mut config, &mut commands, s);
                 ui.separator();
                 crowd_controls(ui, &mut config, &stats, s);
                 ui.separator();
@@ -611,6 +611,28 @@ fn icon_button(ui: &mut egui::Ui, glyph: &str, tip: String, enabled: bool) -> eg
     .on_hover_text(tip)
 }
 
+/// The panel's slider control, in the house layout: the **name on its own
+/// line**, the slider (with its live value drawn in the rail) beneath it.
+///
+/// egui's default puts the name to the right of the rail, which reads
+/// "rail - value - name" and leaves every rail a different width; a label
+/// above keeps the names scannable in one column and the rails full-width.
+/// `hint` may be empty, in which case no tooltip is attached.
+fn labelled_slider<'a>(
+    ui: &mut egui::Ui,
+    name: &str,
+    hint: &str,
+    slider: egui::Slider<'a>,
+) -> egui::Response {
+    ui.label(name);
+    let response = ui.add(slider);
+    if hint.is_empty() {
+        response
+    } else {
+        response.on_hover_text(hint)
+    }
+}
+
 fn run_controls(
     ui: &mut egui::Ui,
     config: &mut SimConfig,
@@ -659,8 +681,12 @@ fn run_controls(
             commands.clear_pheromones = true;
         }
     });
-    ui.add(egui::Slider::new(&mut config.ticks_per_frame, 0..=32).text(s.ticks_per_frame))
-        .on_hover_text(s.ticks_per_frame_hint);
+    labelled_slider(
+        ui,
+        s.ticks_per_frame,
+        s.ticks_per_frame_hint,
+        egui::Slider::new(&mut config.ticks_per_frame, 0..=32),
+    );
 }
 
 fn world_controls(
@@ -731,17 +757,28 @@ fn world_controls(
 
             ui.separator();
             let mut piles = config.food_pile_count as u32;
-            if ui
-                .add(egui::Slider::new(&mut piles, 1..=8).text(s.starting_piles))
-                .on_hover_text(s.starting_piles_hint)
-                .changed()
+            if labelled_slider(
+                ui,
+                s.starting_piles,
+                s.starting_piles_hint,
+                egui::Slider::new(&mut piles, 1..=8),
+            )
+            .changed()
             {
                 config.food_pile_count = piles as usize;
             }
-            ui.add(
-                egui::Slider::new(&mut config.food_per_pile, 0.0..=20_000.0).text(s.food_per_pile),
+            labelled_slider(
+                ui,
+                s.food_per_pile,
+                "",
+                egui::Slider::new(&mut config.food_per_pile, 0.0..=20_000.0),
             );
-            ui.add(egui::Slider::new(&mut config.food_pile_radius, 2.0..=24.0).text(s.pile_radius));
+            labelled_slider(
+                ui,
+                s.pile_radius,
+                "",
+                egui::Slider::new(&mut config.food_pile_radius, 2.0..=24.0),
+            );
             // Live recovery fraction, not a constant: the same line that says
             // how much food the map starts with says how much has come home.
             ui.label(
@@ -1063,14 +1100,18 @@ fn interact_controls(ui: &mut egui::Ui, interaction: &mut InteractionState, s: &
                         }
                     }
                 });
-                ui.add(
-                    egui::Slider::new(&mut interaction.brush_radius, 2.0..=24.0)
-                        .text(s.brush_radius),
+                labelled_slider(
+                    ui,
+                    s.brush_radius,
+                    "",
+                    egui::Slider::new(&mut interaction.brush_radius, 2.0..=24.0),
                 );
                 if interaction.mode == PaintMode::Food {
-                    ui.add(
-                        egui::Slider::new(&mut interaction.pile_amount, 100.0..=10_000.0)
-                            .text(s.food_per_pile),
+                    labelled_slider(
+                        ui,
+                        s.food_per_pile,
+                        "",
+                        egui::Slider::new(&mut interaction.pile_amount, 100.0..=10_000.0),
                     );
                 }
                 ui.small(s.mouse_help);
@@ -1116,13 +1157,18 @@ fn obstacle_controls(
                     gap,
                     thickness,
                 } => {
-                    ui.add(egui::Slider::new(arm, 4.0..=40.0).text(s.arm_length));
-                    ui.add(egui::Slider::new(gap, 4.0..=40.0).text(s.clear_width));
-                    ui.add(egui::Slider::new(thickness, 1.0..=8.0).text(s.thickness));
+                    labelled_slider(ui, s.arm_length, "", egui::Slider::new(arm, 4.0..=40.0));
+                    labelled_slider(ui, s.clear_width, "", egui::Slider::new(gap, 4.0..=40.0));
+                    labelled_slider(ui, s.thickness, "", egui::Slider::new(thickness, 1.0..=8.0));
                     ui.small(s.obstacle_u_wall_hint);
                 }
                 ObstaclePreset::RandomBlocks { density } => {
-                    ui.add(egui::Slider::new(density, 0.01..=0.4).text(s.wall_density));
+                    labelled_slider(
+                        ui,
+                        s.wall_density,
+                        "",
+                        egui::Slider::new(density, 0.01..=0.4),
+                    );
                 }
             }
 
@@ -1176,16 +1222,22 @@ fn colony_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
         .default_open(false)
         .show(ui, |ui| {
             let mut colonies = config.colony_count as u32;
-            if ui
-                .add(egui::Slider::new(&mut colonies, 1..=2).text(s.competing_colonies))
-                .on_hover_text(s.competing_colonies_hint)
-                .changed()
+            if labelled_slider(
+                ui,
+                s.competing_colonies,
+                s.competing_colonies_hint,
+                egui::Slider::new(&mut colonies, 1..=2),
+            )
+            .changed()
             {
                 config.colony_count = colonies as usize;
             }
             if config.colonies() > 1 {
-                ui.add(
-                    egui::Slider::new(&mut config.nest_orbit, 20.0..=140.0).text(s.nest_spacing),
+                labelled_slider(
+                    ui,
+                    s.nest_spacing,
+                    "",
+                    egui::Slider::new(&mut config.nest_orbit, 20.0..=140.0),
                 );
                 ui.small(s.colony_colors_note);
             }
@@ -1196,59 +1248,200 @@ fn pheromone_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
     egui::CollapsingHeader::new(egui::RichText::new(s.pheromones_section).strong())
         .default_open(false)
         .show(ui, |ui| {
-            ui.add(
-                egui::Slider::new(&mut config.evaporation_rate, 0.001..=0.5)
-                    .logarithmic(true)
-                    .text(s.evaporation),
-            )
-            .on_hover_text(s.evaporation_hint);
-            ui.add(
-                egui::Slider::new(&mut config.deposit_amount, 0.0..=5.0).text(s.deposit_strength),
+            labelled_slider(
+                ui,
+                s.evaporation,
+                s.evaporation_hint,
+                egui::Slider::new(&mut config.evaporation_rate, 0.001..=0.5).logarithmic(true),
             );
-            ui.add(
-                egui::Slider::new(&mut config.deposit_radius, 0..=3).text(s.deposit_kernel_radius),
+            labelled_slider(
+                ui,
+                s.deposit_strength,
+                "",
+                egui::Slider::new(&mut config.deposit_amount, 0.0..=5.0),
             );
-            ui.add(egui::Slider::new(&mut config.max_pheromone, 1.0..=100.0).text(s.cell_ceiling));
+            labelled_slider(
+                ui,
+                s.deposit_kernel_radius,
+                "",
+                egui::Slider::new(&mut config.deposit_radius, 0..=3),
+            );
+            labelled_slider(
+                ui,
+                s.cell_ceiling,
+                "",
+                egui::Slider::new(&mut config.max_pheromone, 1.0..=100.0),
+            );
         });
 }
 
-fn ant_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
+/// Ant behaviour, plus the "exit distribution" sub-section: how ants leave
+/// the nest when they spawn. Exit changes ride `SimCommands::restart` (a
+/// slider drag fires it once, on release) so the whole colony re-emerges with
+/// the new settings - the point of the section is the *initial* state, and
+/// letting future spawns silently differ would just confuse.
+fn ant_controls(
+    ui: &mut egui::Ui,
+    config: &mut SimConfig,
+    commands: &mut SimCommands,
+    s: &Strings,
+) {
     egui::CollapsingHeader::new(egui::RichText::new(s.ants_section).strong())
         .default_open(false)
         .show(ui, |ui| {
+            // The exit distribution leads the section: it is about the
+            // initial state, the sliders below tune the ongoing behaviour.
+            exit_controls(ui, config, commands, s);
+
             let mut ant_count = config.ant_count as u32;
-            if ui
-                .add(egui::Slider::new(&mut ant_count, 1..=2_000).text(s.ants_per_colony_slider))
-                .on_hover_text(s.ants_per_colony_hint)
-                .changed()
+            if labelled_slider(
+                ui,
+                s.ants_per_colony_slider,
+                s.ants_per_colony_hint,
+                egui::Slider::new(&mut ant_count, 1..=2_000),
+            )
+            .changed()
             {
                 config.ant_count = ant_count as usize;
             }
 
-            ui.add(egui::Slider::new(&mut config.speed, 0.5..=6.0).text(s.speed));
-            ui.add(
-                egui::Slider::new(&mut config.sensor_distance, 0.0..=12.0)
-                    .text(s.perception_radius),
-            )
-            .on_hover_text(s.perception_radius_hint);
-            ui.add(egui::Slider::new(&mut config.sensor_angle, 0.0..=1.5).text(s.antenna_spread));
-            ui.add(
-                egui::Slider::new(&mut config.sensor_box_radius, 0..=3).text(s.antenna_box_radius),
+            labelled_slider(
+                ui,
+                s.speed,
+                "",
+                egui::Slider::new(&mut config.speed, 0.5..=6.0),
             );
-            ui.add(
-                egui::Slider::new(&mut config.random_walk_strength, 0.0..=1.5).text(s.random_walk),
+            labelled_slider(
+                ui,
+                s.perception_radius,
+                s.perception_radius_hint,
+                egui::Slider::new(&mut config.sensor_distance, 0.0..=12.0),
             );
-            ui.add(
-                egui::Slider::new(&mut config.sensor_turn_gain, 0.0..=1.5).text(s.trail_turn_gain),
-            )
-            .on_hover_text(s.trail_turn_gain_hint);
-            ui.add(
-                egui::Slider::new(&mut config.home_pheromone_weight, 0.0..=1.0)
-                    .text(s.home_trail_guidance),
-            )
-            .on_hover_text(s.home_trail_guidance_hint);
-            ui.add(egui::Slider::new(&mut config.individuality, 0.0..=1.5).text(s.individuality))
-                .on_hover_text(s.individuality_hint);
+            labelled_slider(
+                ui,
+                s.antenna_spread,
+                "",
+                egui::Slider::new(&mut config.sensor_angle, 0.0..=1.5),
+            );
+            labelled_slider(
+                ui,
+                s.antenna_box_radius,
+                "",
+                egui::Slider::new(&mut config.sensor_box_radius, 0..=3),
+            );
+            labelled_slider(
+                ui,
+                s.random_walk,
+                "",
+                egui::Slider::new(&mut config.random_walk_strength, 0.0..=1.5),
+            );
+            labelled_slider(
+                ui,
+                s.trail_turn_gain,
+                s.trail_turn_gain_hint,
+                egui::Slider::new(&mut config.sensor_turn_gain, 0.0..=1.5),
+            );
+            labelled_slider(
+                ui,
+                s.home_trail_guidance,
+                s.home_trail_guidance_hint,
+                egui::Slider::new(&mut config.home_pheromone_weight, 0.0..=1.0),
+            );
+            labelled_slider(
+                ui,
+                s.individuality,
+                s.individuality_hint,
+                egui::Slider::new(&mut config.individuality, 0.0..=1.5),
+            );
+        });
+}
+
+/// The exit-distribution controls: mode picker, jet geometry, and the
+/// batched-release rate. Every edit rebuilds the world on the spot, so what
+/// the user sees is always the configured initial state - see the doc comment
+/// on [`ant_controls`].
+fn exit_controls(
+    ui: &mut egui::Ui,
+    config: &mut SimConfig,
+    commands: &mut SimCommands,
+    s: &Strings,
+) {
+    egui::CollapsingHeader::new(egui::RichText::new(s.exit_section).strong())
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.small(s.exit_hint);
+
+            ui.horizontal_wrapped(|ui| {
+                ui.label(s.exit_mode);
+                let modes = [
+                    (SpawnMode::Disk, s.exit_disk, s.exit_disk_hint),
+                    (SpawnMode::Jet, s.exit_jet, s.exit_jet_hint),
+                ];
+                for (mode, label, hint) in modes {
+                    let selected = config.spawn_mode == mode;
+                    if ui
+                        .selectable_label(selected, label)
+                        .on_hover_text(hint)
+                        .clicked()
+                    {
+                        if !selected {
+                            config.spawn_mode = mode;
+                            commands.restart = true;
+                        }
+                    }
+                }
+            });
+
+            if config.spawn_mode == SpawnMode::Jet {
+                let direction = labelled_slider(
+                    ui,
+                    s.exit_direction,
+                    s.exit_direction_hint,
+                    egui::Slider::new(&mut config.spawn_direction, 0.0..=360.0),
+                );
+                let spread = labelled_slider(
+                    ui,
+                    s.exit_spread,
+                    s.exit_spread_hint,
+                    egui::Slider::new(&mut config.spawn_spread, 0.0..=360.0),
+                );
+                // Fires once per drag, on release - not on every pixel.
+                if direction.drag_stopped() || spread.drag_stopped() {
+                    commands.restart = true;
+                }
+            }
+
+            let mut rate = config.spawn_rate as u32;
+            let rate_slider = labelled_slider(
+                ui,
+                s.exit_rate,
+                s.exit_rate_hint,
+                egui::Slider::new(&mut rate, 0..=50),
+            );
+            if rate_slider.changed() {
+                config.spawn_rate = rate as usize;
+            }
+            if rate_slider.drag_stopped() {
+                commands.restart = true;
+            }
+            // Only meaningful while trickling; hidden otherwise so the 0
+            // state stays unambiguous ("everything leaves at once").
+            if config.spawn_rate > 0 {
+                let max = config.ant_count.max(1) as u32;
+                let mut initial = config.spawn_initial.min(config.ant_count) as u32;
+                let initial_slider = labelled_slider(
+                    ui,
+                    s.exit_initial,
+                    s.exit_initial_hint,
+                    egui::Slider::new(&mut initial, 0..=max),
+                );
+                if initial_slider.changed() {
+                    config.spawn_initial = initial as usize;
+                }
+                if initial_slider.drag_stopped() {
+                    commands.restart = true;
+                }
+            }
         });
 }
 
@@ -1258,12 +1451,18 @@ fn crowd_controls(ui: &mut egui::Ui, config: &mut SimConfig, stats: &SimStats, s
     egui::CollapsingHeader::new(s.crowding_section)
         .default_open(false)
         .show(ui, |ui| {
-            ui.add(
-                egui::Slider::new(&mut config.crowd_threshold, 4.0..=120.0).text(s.jam_threshold),
-            )
-            .on_hover_text(s.jam_threshold_hint);
-            ui.add(egui::Slider::new(&mut config.crowd_relief, 0.0..=2.0).text(s.relief_step))
-                .on_hover_text(s.relief_step_hint);
+            labelled_slider(
+                ui,
+                s.jam_threshold,
+                s.jam_threshold_hint,
+                egui::Slider::new(&mut config.crowd_threshold, 4.0..=120.0),
+            );
+            labelled_slider(
+                ui,
+                s.relief_step,
+                s.relief_step_hint,
+                egui::Slider::new(&mut config.crowd_relief, 0.0..=2.0),
+            );
 
             // Live concentration: if this climbs into the hundreds while food
             // is walled off, the colony is piling onto one spot.
@@ -1287,23 +1486,41 @@ fn predator_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
         .default_open(false)
         .show(ui, |ui| {
             let mut count = config.predator_count as u32;
-            if ui
-                .add(egui::Slider::new(&mut count, 0..=40).text(s.predators))
-                .on_hover_text(s.predators_hint)
-                .changed()
+            if labelled_slider(
+                ui,
+                s.predators,
+                s.predators_hint,
+                egui::Slider::new(&mut count, 0..=40),
+            )
+            .changed()
             {
                 config.predator_count = count as usize;
             }
             ui.add_enabled_ui(config.predator_count > 0, |ui| {
-                ui.add(egui::Slider::new(&mut config.predator_speed, 0.0..=4.0).text(s.speed));
-                ui.add(
-                    egui::Slider::new(&mut config.predator_sense, 0.0..=120.0).text(s.sight_radius),
+                labelled_slider(
+                    ui,
+                    s.speed,
+                    "",
+                    egui::Slider::new(&mut config.predator_speed, 0.0..=4.0),
                 );
-                ui.add(
-                    egui::Slider::new(&mut config.predator_catch_radius, 0.5..=12.0)
-                        .text(s.catch_radius),
+                labelled_slider(
+                    ui,
+                    s.sight_radius,
+                    "",
+                    egui::Slider::new(&mut config.predator_sense, 0.0..=120.0),
                 );
-                ui.add(egui::Slider::new(&mut config.predator_wander, 0.0..=1.5).text(s.wander));
+                labelled_slider(
+                    ui,
+                    s.catch_radius,
+                    "",
+                    egui::Slider::new(&mut config.predator_catch_radius, 0.5..=12.0),
+                );
+                labelled_slider(
+                    ui,
+                    s.wander,
+                    "",
+                    egui::Slider::new(&mut config.predator_wander, 0.0..=1.5),
+                );
                 ui.small(s.predator_note);
             });
         });
@@ -1313,17 +1530,18 @@ fn display_controls(ui: &mut egui::Ui, view: &mut PheromoneView, s: &Strings) {
     egui::CollapsingHeader::new(egui::RichText::new(s.display_section).strong())
         .default_open(false)
         .show(ui, |ui| {
-            ui.add(
-                egui::Slider::new(&mut view.food_gain, 0.02..=2.0)
-                    .logarithmic(true)
-                    .text(s.food_trail_gain),
+            labelled_slider(
+                ui,
+                s.food_trail_gain,
+                "",
+                egui::Slider::new(&mut view.food_gain, 0.02..=2.0).logarithmic(true),
             );
-            ui.add(
-                egui::Slider::new(&mut view.home_gain, 0.0..=1.0)
-                    .logarithmic(true)
-                    .text(s.home_trail_gain),
-            )
-            .on_hover_text(s.gain_hint);
+            labelled_slider(
+                ui,
+                s.home_trail_gain,
+                s.gain_hint,
+                egui::Slider::new(&mut view.home_gain, 0.0..=1.0).logarithmic(true),
+            );
             ui.horizontal(|ui| {
                 // Icon toggle buttons, pressed = shown. 🍎 is the food trail,
                 // 🏠 the trail home (both glyphs verified in the icon fonts).
