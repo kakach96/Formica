@@ -263,21 +263,25 @@ pub fn newborn_ant(
     let x = nest.x + angle.cos() * r;
     let y = nest.y + angle.sin() * r;
 
-    // Face away from the nest, but not *exactly* away. A radial heading for
-    // every ant is half of why the colony used to expand as a hollow ring: with
-    // one shared speed and one shared direction the disc becomes an annulus,
-    // and stays one until the heading jitter has had time to decorrelate it.
-    let outward = match config.spawn_mode {
-        // The ±1 rad jitter below is shared by both modes, so a jet cone of
-        // `spawn_spread` degrees actually spans spread + 2 rad of bearings -
-        // wide cones are soft-edged, which is what a spray should look like.
+    // Disk mode faces away from the nest, but not *exactly* away. A radial
+    // heading for every ant is half of why the colony used to expand as a
+    // hollow ring: with one shared speed and one shared direction the disc
+    // becomes an annulus, and stays one until the heading jitter has had
+    // time to decorrelate it.
+    let heading = match config.spawn_mode {
         SpawnMode::Disk => {
-            if r > 1.0e-3 {
+            let outward = if r > 1.0e-3 {
                 angle
             } else {
                 rng.range(0.0, std::f32::consts::TAU)
-            }
+            };
+            outward + rng.range(-1.0, 1.0)
         }
+        // Jet mode draws the bearing strictly inside the cone and adds no
+        // jitter of its own. The disk's ±1 rad anti-annulus jitter would
+        // swamp a narrow cone (±57° on top of a 30° half-width is no jet at
+        // all); the cone spread itself is the decorrelation, and a full
+        // 360° cone is the disk's heading distribution again.
         SpawnMode::Jet => {
             let direction = config.spawn_direction.to_radians();
             let half = config.spawn_spread.max(0.0).to_radians() * 0.5;
@@ -289,7 +293,7 @@ pub fn newborn_ant(
         AntMarker,
         colony,
         AntPos::new(x, y),
-        AntHeading::new(outward + rng.range(-1.0, 1.0)),
+        AntHeading::new(heading),
         AntState::Searching,
         Carrying::default(),
         PheromoneSensors::default(),
@@ -456,8 +460,11 @@ mod tests {
         );
     }
 
-    /// A jet keeps every departure bearing inside the configured cone (plus
-    /// the shared ±1 rad jitter), while positions stay on the usual disc.
+    /// A jet keeps every departure bearing strictly inside the configured
+    /// cone - no extra jitter on top - while positions stay on the usual
+    /// disc. (Control self-check: the mean absolute offset of a uniform cone
+    /// is a quarter of the half-width, so a "cone" leaking the disk jitter
+    /// would blow both assertions.)
     #[test]
     fn jet_departures_stay_inside_the_cone() {
         let nest = Nest {
@@ -474,12 +481,10 @@ mod tests {
         };
         let direction = config.spawn_direction.to_radians();
         let half = config.spawn_spread.to_radians() * 0.5;
-        // The disk's anti-annulus jitter (±1 rad) is shared by both modes, so
-        // the cone test must allow for it.
-        let tolerance = half + 1.0 + 1.0e-3;
         let mut rng = SimRng::new(13);
 
         let n = 2_000;
+        let mut offset_sum = 0.0;
         for _ in 0..n {
             let (_, _, pos, heading, _, _, _, _) =
                 newborn_ant(AntColony(0), &nest, &mut rng, &config);
@@ -487,10 +492,17 @@ mod tests {
             assert!(d <= config.spawn_radius + 1e-3, "spawned {d} off the disc");
             let offset = wrap_angle(heading.angle - direction).abs();
             assert!(
-                offset <= tolerance,
+                offset <= half + 1.0e-3,
                 "bearing {offset} rad outside a ±{half} rad cone"
             );
+            offset_sum += offset;
         }
+        // Uniform over [-half, half]: mean |offset| = half/2, never near half.
+        let mean_offset = offset_sum / n as f32;
+        assert!(
+            mean_offset < half * 0.7,
+            "mean offset {mean_offset} hugs the cone edge: the disk jitter leaked in"
+        );
     }
 
     /// A full-circle cone is the disk's heading distribution: bearings must

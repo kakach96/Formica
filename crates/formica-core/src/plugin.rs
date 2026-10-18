@@ -240,7 +240,8 @@ pub fn run_ticks(app: &mut App, ticks: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ant::{AntHeading, AntPos, AntState};
+    use crate::ant::{wrap_angle, AntHeading, AntPos, AntState};
+    use crate::config::SpawnMode;
     use crate::grid::Pheromone;
     use crate::predator::PredatorMarker;
 
@@ -413,6 +414,34 @@ mod tests {
         assert_eq!(count(&mut app), 10);
         run_ticks(&mut app, 3);
         assert_eq!(count(&mut app), 30);
+    }
+
+    /// The jet survives the full pipeline: after `init_simulation` every ant
+    /// heads strictly inside the configured cone. (This is the regression
+    /// the diluted-cone bug needs: the newborn_ant unit test alone cannot
+    /// catch a spawn path that quietly ignores the mode.)
+    #[test]
+    fn jet_mode_reaches_the_full_pipeline() {
+        let config = SimConfig {
+            spawn_mode: SpawnMode::Jet,
+            spawn_direction: 90.0,
+            spawn_spread: 60.0,
+            ant_count: 200,
+            ..Default::default()
+        };
+        let direction = config.spawn_direction.to_radians();
+        let half = config.spawn_spread.to_radians() * 0.5;
+        let ant_count = config.ant_count;
+        let mut app = headless_app(config);
+
+        let mut q = app.world_mut().query::<&AntHeading>();
+        let mut seen = 0;
+        for heading in q.iter(app.world()) {
+            seen += 1;
+            let offset = wrap_angle(heading.angle - direction).abs();
+            assert!(offset <= half + 1.0e-3, "bearing {offset} rad off the cone");
+        }
+        assert_eq!(seen, ant_count);
     }
 
     /// A reset must pick up a changed map size, however the size got there.
