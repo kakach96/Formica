@@ -242,9 +242,8 @@ Left panel:
 | World & food | **map size (drag, then press apply size)**, pile count / total / radius |
 | Map edit | map-editing switch (mode and brush grey out while it is off), mode, brush radius, food per new pile |
 | Obstacles | open field / U-shaped wall / scattered blocks; sizes and density |
-| Colonies | **colony count 1–2**, nest spacing |
 | Pheromones | evaporation (log slider), deposit strength, kernel radius, cell ceiling |
-| Ants | ants per colony, **exit distribution** (uniform disk / directed jet: direction + spread; batched release: emerge-per-tick + initial count), speed, perception radius, antenna spread, box radius, random walk, trail gain, home-trail guidance, **individuality** |
+| Ants | **colony count 1–2**, nest spacing, ants per colony, **exit distribution** (uniform disk / directed jet: direction + spread; batched release: emerge-per-tick + initial count), speed, perception radius, antenna spread, box radius, random walk, trail gain, home-trail guidance, **individuality** |
 | Crowding | **jam threshold, relief step**, plus a live "ants in the busiest 4×4 bin" readout |
 | Predators | **count**, speed, sight radius, catch radius, wander |
 | Display | food/home trail gains and visibility |

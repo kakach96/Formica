@@ -375,8 +375,6 @@ fn control_panel(
                 ui.separator();
                 homing_controls(ui, &mut config, s);
                 ui.separator();
-                colony_controls(ui, &mut config, s);
-                ui.separator();
                 pheromone_controls(ui, &mut config, s);
                 ui.separator();
                 ant_controls(ui, &mut config, &mut commands, s);
@@ -1257,33 +1255,6 @@ fn homing_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
         });
 }
 
-fn colony_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
-    egui::CollapsingHeader::new(s.colonies_section)
-        .default_open(false)
-        .show(ui, |ui| {
-            let mut colonies = config.colony_count as u32;
-            if labelled_slider(
-                ui,
-                s.competing_colonies,
-                s.competing_colonies_hint,
-                egui::Slider::new(&mut colonies, 1..=2),
-            )
-            .changed()
-            {
-                config.colony_count = colonies as usize;
-            }
-            if config.colonies() > 1 {
-                labelled_slider(
-                    ui,
-                    s.nest_spacing,
-                    "",
-                    egui::Slider::new(&mut config.nest_orbit, 20.0..=140.0),
-                );
-                ui.small(s.colony_colors_note);
-            }
-        });
-}
-
 fn pheromone_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
     egui::CollapsingHeader::new(egui::RichText::new(s.pheromones_section).strong())
         .default_open(false)
@@ -1315,11 +1286,13 @@ fn pheromone_controls(ui: &mut egui::Ui, config: &mut SimConfig, s: &Strings) {
         });
 }
 
-/// Ant behaviour, plus the "exit distribution" sub-section: how ants leave
-/// the nest when they spawn. Exit changes ride `SimCommands::restart` (a
-/// slider drag fires it once, on release) so the whole colony re-emerges with
-/// the new settings - the point of the section is the *initial* state, and
-/// letting future spawns silently differ would just confuse.
+/// Ant behaviour, colony setup (the former standalone Colonies section was a
+/// two-slider section, so it lives here now), and the "exit distribution"
+/// block: how ants leave the nest when they spawn. Exit changes ride
+/// `SimCommands::restart` (a slider drag fires it once, on release) so the
+/// whole colony re-emerges with the new settings - the point of the block is
+/// the *initial* state, and letting future spawns silently differ would just
+/// confuse.
 fn ant_controls(
     ui: &mut egui::Ui,
     config: &mut SimConfig,
@@ -1329,6 +1302,29 @@ fn ant_controls(
     egui::CollapsingHeader::new(egui::RichText::new(s.ants_section).strong())
         .default_open(false)
         .show(ui, |ui| {
+            // Colony setup first: the count decides how many nests - and how
+            // many copies of everything below - exist at all.
+            let mut colonies = config.colony_count as u32;
+            if labelled_slider(
+                ui,
+                s.competing_colonies,
+                s.competing_colonies_hint,
+                egui::Slider::new(&mut colonies, 1..=2),
+            )
+            .changed()
+            {
+                config.colony_count = colonies as usize;
+            }
+            if config.colonies() > 1 {
+                labelled_slider(
+                    ui,
+                    s.nest_spacing,
+                    "",
+                    egui::Slider::new(&mut config.nest_orbit, 20.0..=140.0),
+                );
+                ui.small(s.colony_colors_note);
+            }
+
             let mut ant_count = config.ant_count as u32;
             if labelled_slider(
                 ui,

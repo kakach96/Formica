@@ -193,7 +193,6 @@ pub struct Strings {
     pub homing_flow_hint: &'static str,
 
     // ---- window app: colonies ----------------------------------------------
-    pub colonies_section: &'static str,
     pub competing_colonies: &'static str,
     pub competing_colonies_hint: &'static str,
     pub nest_spacing: &'static str,
@@ -496,7 +495,6 @@ pub static EN: Strings = Strings {
     homing_flow: "nest flow field",
     homing_flow_hint: "follow a BFS distance field to the nest - routes around any wall, rebuilds on every map edit",
 
-    colonies_section: "Colonies",
     competing_colonies: "competing colonies",
     competing_colonies_hint: "each colony has private pheromone fields and its own nest, but they share the same finite food",
     nest_spacing: "nest spacing",
@@ -830,7 +828,6 @@ pub static ZH: Strings = Strings {
     homing_flow: "巢穴导航场",
     homing_flow_hint: "沿到巢穴的 BFS 距离场下山:可绕开任何墙体,每次改墙都会重建",
 
-    colonies_section: "蚁群",
     competing_colonies: "竞争蚁群数",
     competing_colonies_hint: "每窝有自己的信息素场和巢穴,但共享同一批有限的食物",
     nest_spacing: "巢间距",
@@ -1255,7 +1252,6 @@ mod tests {
                 wall_density,
                 wall_cells,
                 draw_your_own,
-                colonies_section,
                 competing_colonies,
                 competing_colonies_hint,
                 nest_spacing,
